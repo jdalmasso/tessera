@@ -33,7 +33,8 @@ from utils.parsers import count_lines, extract_frontmatter, has_section, is_vali
 logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path(__file__).parent / "config"
-DB_PATH = Path(__file__).parent.parent.parent / "tessera.db"
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+DB_PATH = Path(os.environ.get("TESSERA_DB_PATH", _PROJECT_ROOT / "db" / "tessera.db"))
 SURFACE_ID = "skills_leaderboard"
 SOURCE_ID = "github"
 
