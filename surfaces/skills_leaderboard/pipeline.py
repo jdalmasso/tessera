@@ -90,12 +90,22 @@ def _find_skill_paths(
     ]
 
 
+def _utcnow() -> datetime.datetime:
+    """Return the current UTC time as a timezone-aware datetime."""
+    return datetime.datetime.now(datetime.UTC)
+
+
+def _utcnow_str() -> str:
+    """Return the current UTC time as an ISO-8601 string (e.g. '2026-04-12T10:00:00Z')."""
+    return _utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _compute_commit_windows(commits: list[dict]) -> dict[str, int]:
     """
     Given a list of commit dicts from the GitHub API, compute the four
     commit-window metrics used by velocity and freshness scoring.
     """
-    now = datetime.datetime.utcnow()
+    now = _utcnow().replace(tzinfo=None)  # naive UTC for comparison with stripped commit times
     since_30d = now - datetime.timedelta(days=30)
     since_60d = now - datetime.timedelta(days=60)
 
@@ -138,8 +148,10 @@ def ingest_repo(
     """
     full_name: str = repo_data["full_name"]
     owner, repo_name = full_name.split("/", 1)
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    min_chars: int = config["discovery"]["filters"]["min_skill_md_chars"]
+    now = _utcnow_str()
+    min_chars: int = (
+        config.get("discovery", {}).get("filters", {}).get("min_skill_md_chars", 100)
+    )
 
     # --- Repo metadata signal ---
     store_raw_signal(
@@ -181,9 +193,7 @@ def ingest_repo(
         skill_paths = _find_skill_paths(client, owner, repo_name, root)
 
     # --- Commit signals (velocity + freshness) ---
-    since_90d = (datetime.datetime.utcnow() - datetime.timedelta(days=90)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
+    since_90d = (_utcnow() - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
     commits = client.get_commits(owner, repo_name, since=since_90d)
     store_raw_signal(
         conn, SOURCE_ID, "commits", full_name,
@@ -279,7 +289,15 @@ def _get_latest_payload(
         """,
         (entity_ref, signal_type, run_id),
     ).fetchone()
-    return json.loads(row["payload"]) if row else None
+    if row is None:
+        return None
+    try:
+        return json.loads(row["payload"])
+    except (json.JSONDecodeError, TypeError) as exc:
+        logger.warning(
+            "Malformed payload for %s/%s (run %s): %s", entity_ref, signal_type, run_id, exc
+        )
+        return None
 
 
 def _parse_iso(ts: str) -> datetime.datetime:
@@ -307,7 +325,10 @@ def _compute_corpus_max(conn: Any, run_id: str) -> tuple[int, int, int]:
     ).fetchall()
     max_stars = max_forks = max_watchers = 1
     for row in rows:
-        p = json.loads(row["payload"])
+        try:
+            p = json.loads(row["payload"])
+        except (json.JSONDecodeError, TypeError):
+            continue
         max_stars = max(max_stars, p.get("stars", 0))
         max_forks = max(max_forks, p.get("forks", 0))
         max_watchers = max(max_watchers, p.get("watchers", 0))
@@ -332,7 +353,7 @@ def score_and_store_skills(conn: Any, run_id: str, config: dict) -> int:
 
     Returns the number of skills successfully scored.
     """
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = _utcnow_str()
     corpus_max_stars, corpus_max_forks, corpus_max_watchers = _compute_corpus_max(conn, run_id)
 
     skill_rows = conn.execute(
@@ -345,7 +366,11 @@ def score_and_store_skills(conn: Any, run_id: str, config: dict) -> int:
 
     for skill_row in skill_rows:
         entity_ref: str = skill_row["entity_ref"]
-        skill_payload: dict = json.loads(skill_row["payload"])
+        try:
+            skill_payload: dict = json.loads(skill_row["payload"])
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning("Malformed skill_file payload for %s: %s", entity_ref, exc)
+            continue
         repo_full_name = _repo_from_entity_ref(entity_ref)
 
         # Gather repo-level signals (all keyed by full_name in raw_signals)
@@ -511,7 +536,7 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
     init_db(conn)
 
     run_id = str(uuid.uuid4())
-    started_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    started_at = _utcnow_str()
 
     upsert_signal_source(conn, SOURCE_ID, "GitHub API", last_run_at=started_at)
     start_pipeline_run(conn, run_id, SURFACE_ID, started_at)
@@ -573,7 +598,7 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
         scored = score_and_store_skills(conn, run_id, config)
         logger.info("Scored %d skills.", scored)
 
-        completed_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        completed_at = _utcnow_str()
         complete_pipeline_run(
             conn, run_id, completed_at,
             stats={"repos_discovered": len(discovered),
@@ -584,7 +609,7 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
 
     except Exception as exc:
         logger.exception("Pipeline failed: %s", exc)
-        failed_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        failed_at = _utcnow_str()
         complete_pipeline_run(conn, run_id, failed_at, status=RUN_STATUS_FAILED,
                               stats={"error": str(exc)})
         raise
