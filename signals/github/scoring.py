@@ -16,10 +16,7 @@ All sigmoid/decay parameters are read from config/scoring.yaml.
 """
 
 import math
-import logging
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
