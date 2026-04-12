@@ -9,6 +9,7 @@ import math
 import pytest
 
 from signals.github.scoring import (
+    compute_composite,
     score_adoption,
     score_code_quality,
     score_contributors,
@@ -386,3 +387,138 @@ class TestCodeQuality:
         ]
         for args in signals:
             assert score_code_quality(*args) == APPROX(0.2)
+
+
+# ---------------------------------------------------------------------------
+# Composite
+# ---------------------------------------------------------------------------
+
+# Minimal config mirroring scoring.yaml methodologies block
+_COMPOSITE_CONFIG = {
+    "methodologies": {
+        "trending": {
+            "weights": {
+                "velocity": 25, "adoption": 20, "freshness": 20,
+                "documentation": 15, "contributors": 10, "code_quality": 10,
+            }
+        },
+        "popular": {
+            "weights": {
+                "velocity": 10, "adoption": 30, "freshness": 20,
+                "documentation": 15, "contributors": 15, "code_quality": 10,
+            }
+        },
+        "well_rounded": {
+            "weights": {
+                "velocity": 10, "adoption": 15, "freshness": 15,
+                "documentation": 25, "contributors": 10, "code_quality": 25,
+            }
+        },
+    }
+}
+
+_ALL_ONES  = dict(velocity=1.0, adoption=1.0, freshness=1.0,
+                  documentation=1.0, contributors=1.0, code_quality=1.0)
+_ALL_ZEROS = dict(velocity=0.0, adoption=0.0, freshness=0.0,
+                  documentation=0.0, contributors=0.0, code_quality=0.0)
+_ALL_HALVES = dict(velocity=0.5, adoption=0.5, freshness=0.5,
+                   documentation=0.5, contributors=0.5, code_quality=0.5)
+
+
+class TestCompositeScoring:
+
+    def test_perfect_score_trending(self):
+        """All dimensions = 1.0 → 100.0 for every methodology."""
+        score = compute_composite(**_ALL_ONES, methodology="trending",
+                                  config=_COMPOSITE_CONFIG)
+        assert score == APPROX(100.0)
+
+    def test_perfect_score_popular(self):
+        score = compute_composite(**_ALL_ONES, methodology="popular",
+                                  config=_COMPOSITE_CONFIG)
+        assert score == APPROX(100.0)
+
+    def test_perfect_score_well_rounded(self):
+        score = compute_composite(**_ALL_ONES, methodology="well_rounded",
+                                  config=_COMPOSITE_CONFIG)
+        assert score == APPROX(100.0)
+
+    def test_zero_score(self):
+        """All dimensions = 0.0 → 0.0 regardless of methodology."""
+        for m in ("trending", "popular", "well_rounded"):
+            assert compute_composite(**_ALL_ZEROS, methodology=m,
+                                     config=_COMPOSITE_CONFIG) == APPROX(0.0)
+
+    def test_half_score(self):
+        """All dimensions = 0.5 → 50.0 (weights sum to 100)."""
+        for m in ("trending", "popular", "well_rounded"):
+            assert compute_composite(**_ALL_HALVES, methodology=m,
+                                     config=_COMPOSITE_CONFIG) == APPROX(50.0)
+
+    def test_trending_velocity_weight(self):
+        """Only velocity = 1.0 → 25.0 for trending."""
+        score = compute_composite(
+            velocity=1.0, adoption=0.0, freshness=0.0,
+            documentation=0.0, contributors=0.0, code_quality=0.0,
+            methodology="trending", config=_COMPOSITE_CONFIG,
+        )
+        assert score == APPROX(25.0)
+
+    def test_popular_adoption_weight(self):
+        """Only adoption = 1.0 → 30.0 for popular."""
+        score = compute_composite(
+            velocity=0.0, adoption=1.0, freshness=0.0,
+            documentation=0.0, contributors=0.0, code_quality=0.0,
+            methodology="popular", config=_COMPOSITE_CONFIG,
+        )
+        assert score == APPROX(30.0)
+
+    def test_well_rounded_documentation_weight(self):
+        """Only documentation = 1.0 → 25.0 for well_rounded."""
+        score = compute_composite(
+            velocity=0.0, adoption=0.0, freshness=0.0,
+            documentation=1.0, contributors=0.0, code_quality=0.0,
+            methodology="well_rounded", config=_COMPOSITE_CONFIG,
+        )
+        assert score == APPROX(25.0)
+
+    def test_well_rounded_code_quality_weight(self):
+        """Only code_quality = 1.0 → 25.0 for well_rounded."""
+        score = compute_composite(
+            velocity=0.0, adoption=0.0, freshness=0.0,
+            documentation=0.0, contributors=0.0, code_quality=1.0,
+            methodology="well_rounded", config=_COMPOSITE_CONFIG,
+        )
+        assert score == APPROX(25.0)
+
+    def test_mixed_dimensions_trending(self):
+        """
+        Manually verified:
+          velocity=0.8, adoption=0.6, freshness=0.4, doc=1.0, contrib=0.2, cq=0.0
+          trending: 0.8*25 + 0.6*20 + 0.4*20 + 1.0*15 + 0.2*10 + 0.0*10
+                  = 20 + 12 + 8 + 15 + 2 + 0 = 57.0
+        """
+        score = compute_composite(
+            velocity=0.8, adoption=0.6, freshness=0.4,
+            documentation=1.0, contributors=0.2, code_quality=0.0,
+            methodology="trending", config=_COMPOSITE_CONFIG,
+        )
+        assert score == APPROX(57.0)
+
+    def test_result_bounded_0_100(self):
+        """Composite is always in [0, 100] for valid dimension inputs."""
+        import random
+        random.seed(42)
+        for _ in range(50):
+            dims = {d: random.random() for d in
+                    ("velocity", "adoption", "freshness",
+                     "documentation", "contributors", "code_quality")}
+            for m in ("trending", "popular", "well_rounded"):
+                s = compute_composite(**dims, methodology=m,
+                                      config=_COMPOSITE_CONFIG)
+                assert 0.0 <= s <= 100.0
+
+    def test_unknown_methodology_raises(self):
+        with pytest.raises(ValueError, match="Unknown methodology"):
+            compute_composite(**_ALL_ONES, methodology="nonexistent",
+                              config=_COMPOSITE_CONFIG)
