@@ -277,6 +277,57 @@ def score_contributors(
 
 
 # ---------------------------------------------------------------------------
+# Composite
+# ---------------------------------------------------------------------------
+
+DIMENSIONS = ["velocity", "adoption", "freshness", "documentation", "contributors", "code_quality"]
+
+
+def compute_composite(
+    velocity: float,
+    adoption: float,
+    freshness: float,
+    documentation: float,
+    contributors: float,
+    code_quality: float,
+    methodology: str,
+    config: dict[str, Any],
+) -> float:
+    """
+    Combine six dimension scores into a single 0–100 composite.
+
+    Each dimension score is expected to be in [0.0, 1.0].
+    Weights are loaded from config["methodologies"][methodology]["weights"]
+    and must sum to 100 (so the result is already on a 0–100 scale).
+
+    Supported methodologies (defined in scoring.yaml):
+      trending      — momentum-weighted (velocity 25, adoption 20, …)
+      popular       — adoption-weighted (adoption 30, …)
+      well_rounded  — quality/docs-weighted (documentation 25, code_quality 25, …)
+
+    Raises ValueError for unknown methodology names.
+    """
+    methodologies = config.get("methodologies", {})
+    if methodology not in methodologies:
+        raise ValueError(
+            f"Unknown methodology: {methodology!r}. "
+            f"Expected one of {sorted(methodologies)}"
+        )
+
+    weights = methodologies[methodology]["weights"]
+    scores = {
+        "velocity": velocity,
+        "adoption": adoption,
+        "freshness": freshness,
+        "documentation": documentation,
+        "contributors": contributors,
+        "code_quality": code_quality,
+    }
+
+    return sum(weights[dim] * scores[dim] for dim in DIMENSIONS)
+
+
+# ---------------------------------------------------------------------------
 # Code quality
 # ---------------------------------------------------------------------------
 
