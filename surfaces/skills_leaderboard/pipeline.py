@@ -9,6 +9,7 @@ Scoring and entity resolution are added in Phase 3.
 """
 
 import datetime
+import json
 import logging
 import os
 import uuid
@@ -24,10 +25,22 @@ from data.store import (
     init_db,
     start_pipeline_run,
     store_raw_signal,
+    store_score,
+    upsert_entity,
     upsert_signal_source,
 )
 from signals.github.client import GitHubClient
 from signals.github.discovery import DiscoveredRepo, discover, make_entity_id
+from signals.github.scoring import (
+    compute_composite,
+    score_adoption,
+    score_code_quality,
+    score_contributors,
+    score_documentation,
+    score_freshness,
+    score_velocity,
+)
+from surfaces.skills_leaderboard.categorization import categorize
 from utils.parsers import count_lines, extract_frontmatter, has_section, is_valid_skill
 
 logger = logging.getLogger(__name__)
@@ -234,6 +247,244 @@ def ingest_repo(
 
 
 # ---------------------------------------------------------------------------
+# Scoring helpers
+# ---------------------------------------------------------------------------
+
+def _repo_from_entity_ref(entity_ref: str) -> str:
+    """
+    Extract the ``owner/repo`` portion from an entity ref.
+
+    "skill:owner/repo"              → "owner/repo"
+    "skill:owner/repo:skills/path"  → "owner/repo"
+    """
+    without_prefix = entity_ref[len("skill:"):]
+    return without_prefix.split(":")[0]
+
+
+def _get_latest_payload(
+    conn: Any,
+    entity_ref: str,
+    signal_type: str,
+    run_id: str,
+) -> Optional[dict]:
+    """
+    Return the most-recent payload dict for a given entity_ref + signal_type
+    within a run, or None if no matching row exists.
+    """
+    row = conn.execute(
+        """
+        SELECT payload FROM raw_signals
+        WHERE entity_ref = ? AND signal_type = ? AND run_id = ?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (entity_ref, signal_type, run_id),
+    ).fetchone()
+    return json.loads(row["payload"]) if row else None
+
+
+def _parse_iso(ts: str) -> datetime.datetime:
+    """Parse an ISO-8601 UTC string to a naive UTC datetime."""
+    return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=None)
+
+
+def _days_between(earlier: str, later: str, default: int = 0) -> int:
+    """Return days between two ISO-8601 strings; return *default* on error."""
+    try:
+        return max(0, (_parse_iso(later) - _parse_iso(earlier)).days)
+    except (ValueError, AttributeError):
+        return default
+
+
+def _compute_corpus_max(conn: Any, run_id: str) -> tuple[int, int, int]:
+    """
+    Scan all ``repo_metadata`` signals for the current run and return
+    (max_stars, max_forks, max_watchers).  Falls back to 1 so log-normalisation
+    never divides by zero.
+    """
+    rows = conn.execute(
+        "SELECT payload FROM raw_signals WHERE signal_type = 'repo_metadata' AND run_id = ?",
+        (run_id,),
+    ).fetchall()
+    max_stars = max_forks = max_watchers = 1
+    for row in rows:
+        p = json.loads(row["payload"])
+        max_stars = max(max_stars, p.get("stars", 0))
+        max_forks = max(max_forks, p.get("forks", 0))
+        max_watchers = max(max_watchers, p.get("watchers", 0))
+    return max_stars, max_forks, max_watchers
+
+
+# ---------------------------------------------------------------------------
+# Scoring + entity resolution
+# ---------------------------------------------------------------------------
+
+def score_and_store_skills(conn: Any, run_id: str, config: dict) -> int:
+    """
+    Second pass over every ``skill_file`` signal in *run_id*:
+
+    1. Join associated repo-level signals (metadata, commits, contributors,
+       code_quality).
+    2. Compute the six dimension scores.
+    3. Run the categorisation cascade.
+    4. Upsert the entity record.
+    5. Store 9 scores: 6 dimensions + ``composite:trending``,
+       ``composite:popular``, ``composite:well_rounded``.
+
+    Returns the number of skills successfully scored.
+    """
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    corpus_max_stars, corpus_max_forks, corpus_max_watchers = _compute_corpus_max(conn, run_id)
+
+    skill_rows = conn.execute(
+        "SELECT entity_ref, payload FROM raw_signals "
+        "WHERE signal_type = 'skill_file' AND run_id = ?",
+        (run_id,),
+    ).fetchall()
+
+    scored = 0
+
+    for skill_row in skill_rows:
+        entity_ref: str = skill_row["entity_ref"]
+        skill_payload: dict = json.loads(skill_row["payload"])
+        repo_full_name = _repo_from_entity_ref(entity_ref)
+
+        # Gather repo-level signals (all keyed by full_name in raw_signals)
+        repo_meta = _get_latest_payload(conn, repo_full_name, "repo_metadata", run_id)
+        commits    = _get_latest_payload(conn, repo_full_name, "commits", run_id)
+        contribs   = _get_latest_payload(conn, repo_full_name, "contributors", run_id)
+        cq_raw     = _get_latest_payload(conn, repo_full_name, "code_quality", run_id)
+
+        if not all([repo_meta, commits, contribs, cq_raw]):
+            logger.warning("Skipping %s — missing repo-level signals", entity_ref)
+            continue
+
+        # Temporal helpers
+        repo_age_days         = _days_between(repo_meta.get("created_at", ""), now, default=0)
+        days_since_last_commit = _days_between(repo_meta.get("pushed_at", ""), now, default=365)
+
+        # Monorepo dampening: count all skills in this repo for this run
+        skill_count = conn.execute(
+            "SELECT COUNT(*) FROM raw_signals "
+            "WHERE signal_type = 'skill_file' AND run_id = ? "
+            "AND entity_ref LIKE ?",
+            (run_id, f"skill:{repo_full_name}%"),
+        ).fetchone()[0]
+
+        # --- Dimension scores ---
+        vel = score_velocity(
+            commit_count_30d=commits.get("commit_count_30d", 0),
+            commit_count_prev_30d=commits.get("commit_count_prev_30d", 0),
+            unique_commit_weeks_90d=commits.get("unique_commit_weeks_90d", 0),
+            repo_age_days=repo_age_days,
+            config=config["scoring"],
+        )
+        adop = score_adoption(
+            stars=repo_meta.get("stars", 0),
+            forks=repo_meta.get("forks", 0),
+            watchers=repo_meta.get("watchers", 0),
+            corpus_max_stars=corpus_max_stars,
+            corpus_max_forks=corpus_max_forks,
+            corpus_max_watchers=corpus_max_watchers,
+            skill_count=skill_count,
+            config=config["scoring"],
+        )
+        fresh = score_freshness(
+            days_since_last_commit=days_since_last_commit,
+            commit_count_90d=commits.get("commit_count_90d", 0),
+            repo_age_days=repo_age_days,
+            config=config["scoring"],
+        )
+        description_text = skill_payload.get("frontmatter_description") or ""
+        doc = score_documentation(
+            has_frontmatter=skill_payload.get("has_frontmatter", False),
+            has_name=bool(skill_payload.get("frontmatter_name")),
+            has_description=bool(description_text),
+            description_len=len(description_text),
+            line_count=skill_payload.get("line_count", 0),
+            has_examples=skill_payload.get("has_examples_section", False),
+            has_usage=skill_payload.get("has_usage_section", False),
+            has_readme=skill_payload.get("has_readme", False),
+            has_scripts=skill_payload.get("has_scripts_dir", False),
+            has_references=skill_payload.get("has_references_dir", False),
+            config=config["scoring"],
+        )
+        contrib = score_contributors(
+            contributor_count=contribs.get("contributor_count", 0),
+            config=config["scoring"],
+        )
+        cq = score_code_quality(
+            has_license=repo_meta.get("has_license", False),
+            has_workflows=cq_raw.get("has_github_dir", False),
+            has_tests=cq_raw.get("has_tests", False),
+            has_gitignore=cq_raw.get("has_gitignore", False),
+            has_topics=bool(repo_meta.get("topics")),
+        )
+
+        # --- Categorise ---
+        category = categorize(
+            frontmatter_category=skill_payload.get("frontmatter_category"),
+            frontmatter_tags=skill_payload.get("frontmatter_tags") or [],
+            name=skill_payload.get("frontmatter_name") or "",
+            description=description_text,
+            repo_topics=repo_meta.get("topics") or [],
+            skill_path=skill_payload.get("skill_path", ""),
+            readme_excerpt="",  # not fetched in v0.1
+            config=config["categories"],
+        )
+
+        # --- Upsert entity ---
+        upsert_entity(
+            conn,
+            entity_id=entity_ref,
+            entity_type="skill",
+            name=skill_payload.get("frontmatter_name") or repo_full_name,
+            description=description_text or None,
+            metadata={
+                "repo": repo_full_name,
+                "skill_path": skill_payload.get("skill_path"),
+                "stars": repo_meta.get("stars", 0),
+                "forks": repo_meta.get("forks", 0),
+                "topics": repo_meta.get("topics", []),
+            },
+            category=category,
+            now=now,
+        )
+
+        # --- Store dimension scores ---
+        dim_scores = {
+            "velocity": vel,
+            "adoption": adop,
+            "freshness": fresh,
+            "documentation": doc,
+            "contributors": contrib,
+            "code_quality": cq,
+        }
+        for dim, value in dim_scores.items():
+            store_score(conn, entity_ref, dim, round(value, 6), now, run_id)
+
+        # --- Store composite scores ---
+        for methodology in ("trending", "popular", "well_rounded"):
+            composite = compute_composite(
+                velocity=vel,
+                adoption=adop,
+                freshness=fresh,
+                documentation=doc,
+                contributors=contrib,
+                code_quality=cq,
+                methodology=methodology,
+                config=config["scoring"],
+            )
+            store_score(
+                conn, entity_ref, f"composite:{methodology}",
+                round(composite, 4), now, run_id,
+            )
+
+        scored += 1
+
+    return scored
+
+
+# ---------------------------------------------------------------------------
 # Main pipeline entry point
 # ---------------------------------------------------------------------------
 
@@ -317,11 +568,17 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
             "Ingestion complete: %d valid skills, %d errors.", valid_skills, errors
         )
 
+        # --- Scoring + entity resolution ---
+        logger.info("Scoring skills...")
+        scored = score_and_store_skills(conn, run_id, config)
+        logger.info("Scored %d skills.", scored)
+
         completed_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         complete_pipeline_run(
             conn, run_id, completed_at,
             stats={"repos_discovered": len(discovered),
                    "valid_skills": valid_skills,
+                   "scored_skills": scored,
                    "errors": errors},
         )
 
