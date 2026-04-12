@@ -1,0 +1,393 @@
+# Category definitions for the Skills Leaderboard.
+# Each skill is assigned to exactly one category via a cascade (see docs/categorization.md).
+# Keyword matching is case-insensitive and applied to: skill name, SKILL.md description,
+# GitHub topics, directory path, and README (first 500 chars).
+
+categories:
+  - id: backend
+    name: "Backend"
+    description: "Server frameworks, APIs, databases, system design, CLIs, SDKs"
+    keywords:
+      - api
+      - rest
+      - graphql
+      - grpc
+      - server
+      - backend
+      - database
+      - sql
+      - postgres
+      - mysql
+      - sqlite
+      - redis
+      - mongodb
+      - orm
+      - django
+      - flask
+      - fastapi
+      - express
+      - node
+      - rails
+      - spring
+      - golang
+      - rust
+      - cli
+      - sdk
+      - microservice
+      - endpoint
+      - schema
+      - migration
+      - authentication
+      - authorization
+      - middleware
+      - webhook
+
+  - id: frontend_design
+    name: "Frontend & Design"
+    description: "UI components, CSS, design systems, themes, responsive layouts"
+    keywords:
+      - frontend
+      - ui
+      - ux
+      - react
+      - vue
+      - svelte
+      - angular
+      - nextjs
+      - nuxt
+      - css
+      - tailwind
+      - sass
+      - scss
+      - html
+      - component
+      - design system
+      - theme
+      - responsive
+      - mobile
+      - animation
+      - accessibility
+      - a11y
+      - figma
+      - storybook
+      - layout
+      - typography
+      - color
+      - icon
+      - button
+      - form
+      - modal
+
+  - id: devops_infra
+    name: "DevOps & Infra"
+    description: "CI/CD, Docker, Kubernetes, cloud providers, Terraform, deployment"
+    keywords:
+      - devops
+      - infrastructure
+      - infra
+      - docker
+      - kubernetes
+      - k8s
+      - helm
+      - terraform
+      - ansible
+      - ci/cd
+      - cicd
+      - github actions
+      - gitlab ci
+      - jenkins
+      - deployment
+      - cloud
+      - aws
+      - gcp
+      - azure
+      - iam
+      - networking
+      - vpc
+      - load balancer
+      - monitoring
+      - observability
+      - prometheus
+      - grafana
+      - logging
+      - sre
+      - reliability
+
+  - id: security
+    name: "Security"
+    description: "Audits, OWASP, vulnerability scanning, compliance, pen testing"
+    keywords:
+      - security
+      - audit
+      - vulnerability
+      - owasp
+      - penetration
+      - pentest
+      - exploit
+      - cve
+      - compliance
+      - soc2
+      - gdpr
+      - hipaa
+      - encryption
+      - cryptography
+      - authentication
+      - secrets
+      - threat
+      - risk
+      - hardening
+      - firewall
+      - zero trust
+      - sast
+      - dast
+      - devsecops
+
+  - id: testing_qa
+    name: "Testing & QA"
+    description: "Unit/integration/e2e testing, debugging, test automation"
+    keywords:
+      - testing
+      - test
+      - qa
+      - quality
+      - unit test
+      - integration test
+      - e2e
+      - end-to-end
+      - playwright
+      - cypress
+      - selenium
+      - jest
+      - pytest
+      - debugging
+      - debug
+      - assertion
+      - mock
+      - stub
+      - coverage
+      - regression
+      - benchmark
+      - performance test
+      - load test
+
+  - id: data_ai
+    name: "Data & AI"
+    description: "ML pipelines, model training, data processing, analytics"
+    keywords:
+      - machine learning
+      - ml
+      - ai
+      - llm
+      - model
+      - training
+      - inference
+      - neural network
+      - deep learning
+      - nlp
+      - computer vision
+      - data pipeline
+      - etl
+      - analytics
+      - pandas
+      - numpy
+      - pytorch
+      - tensorflow
+      - scikit
+      - huggingface
+      - embedding
+      - vector
+      - rag
+      - fine-tuning
+      - dataset
+      - feature engineering
+      - data science
+
+  - id: research
+    name: "Research"
+    description: "Literature review, paper analysis, deep research, fact-checking, academic"
+    keywords:
+      - research
+      - literature review
+      - paper
+      - academic
+      - arxiv
+      - citation
+      - bibliography
+      - fact-check
+      - investigation
+      - analysis
+      - survey
+      - systematic review
+      - hypothesis
+      - experiment
+      - scholarly
+      - journal
+      - peer review
+
+  - id: documentation
+    name: "Documentation"
+    description: "Docs generation, READMEs, changelogs, API docs, technical writing"
+    keywords:
+      - documentation
+      - docs
+      - readme
+      - changelog
+      - api docs
+      - docstring
+      - technical writing
+      - mkdocs
+      - sphinx
+      - docusaurus
+      - gitbook
+      - openapi
+      - swagger
+      - specification
+      - runbook
+      - wiki
+      - knowledge base
+
+  - id: productivity_workflow
+    name: "Productivity & Workflow"
+    description: "Project management, Agile, Git workflows, task automation"
+    keywords:
+      - productivity
+      - workflow
+      - agile
+      - scrum
+      - kanban
+      - sprint
+      - project management
+      - git
+      - branching
+      - pull request
+      - code review
+      - automation
+      - task
+      - planning
+      - retrospective
+      - standup
+      - jira
+      - linear
+      - notion
+      - ticketing
+
+  - id: consulting_strategy
+    name: "Consulting & Strategy"
+    description: "Market research, competitive analysis, frameworks, due diligence, advisory"
+    keywords:
+      - consulting
+      - strategy
+      - market research
+      - competitive analysis
+      - due diligence
+      - business model
+      - framework
+      - advisory
+      - stakeholder
+      - roadmap
+      - okr
+      - kpi
+      - swot
+      - investment
+      - venture capital
+      - startup
+      - go-to-market
+      - positioning
+
+  - id: back_office
+    name: "Back-Office"
+    description: "HR, finance, legal, internal comms, compliance operations"
+    keywords:
+      - hr
+      - human resources
+      - finance
+      - accounting
+      - legal
+      - contract
+      - compliance
+      - policy
+      - onboarding
+      - offboarding
+      - payroll
+      - procurement
+      - vendor
+      - internal comms
+      - operations
+      - admin
+      - budget
+      - invoice
+
+  - id: marketing_content
+    name: "Marketing & Content"
+    description: "SEO, copywriting, social media, newsletters, content strategy"
+    keywords:
+      - marketing
+      - content
+      - seo
+      - copywriting
+      - social media
+      - newsletter
+      - email
+      - blog
+      - campaign
+      - brand
+      - engagement
+      - growth
+      - conversion
+      - landing page
+      - ad copy
+      - content strategy
+      - twitter
+      - linkedin
+      - instagram
+
+  - id: creative_media
+    name: "Creative & Media"
+    description: "Art, music, video, audio, generative content"
+    keywords:
+      - creative
+      - art
+      - music
+      - video
+      - audio
+      - generative
+      - image
+      - illustration
+      - photography
+      - podcast
+      - script
+      - storytelling
+      - narrative
+      - game
+      - animation
+      - media
+      - multimedia
+
+  - id: integrations
+    name: "Integrations"
+    description: "MCP servers, API connectors, third-party service automation"
+    keywords:
+      - integration
+      - mcp
+      - connector
+      - plugin
+      - extension
+      - webhook
+      - oauth
+      - zapier
+      - make
+      - n8n
+      - third-party
+      - saas
+      - stripe
+      - slack
+      - notion
+      - airtable
+      - salesforce
+      - hubspot
+      - intercom
+
+  - id: other
+    name: "Other"
+    description: "Fallback for skills that don't match any above category"
+    keywords: []  # catch-all — no keywords needed

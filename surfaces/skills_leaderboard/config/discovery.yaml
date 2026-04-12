@@ -1,0 +1,44 @@
+# Discovery configuration: search queries, caps, and filtering rules.
+
+max_repos: 2000  # stop discovery once this many unique repos are found
+
+# Phase 1: Repository searches sorted by stars.
+# Runs first to capture popular repos early.
+phase_1:
+  type: repo_search
+  queries:
+    - query: "topic:claude-skill"
+      sort: stars
+    - query: "topic:claude-code-skill"
+      sort: stars
+    - query: "topic:agent-skill"
+      sort: stars
+
+# Phase 2: Code searches to backfill repos without topics.
+# Runs after phase 1 until max_repos is reached.
+phase_2:
+  type: code_search
+  queries:
+    - query: 'filename:SKILL.md path:.claude/skills'
+    - query: 'filename:SKILL.md "claude" "skill"'
+    - query: "filename:SKILL.md"
+
+# Filtering: a repo/skill is included only if ALL conditions pass.
+filters:
+  exclude_forks: true      # all forks excluded in v0.1
+  exclude_archived: true
+  min_skill_md_chars: 100
+  require_frontmatter: true
+  require_name_or_description: true  # frontmatter must have at least one of these
+
+# Monorepo handling
+monorepo:
+  collection_threshold: 10  # repos with ≥ this many SKILL.md files are "collections"
+  adoption_dampening: true  # dampen repo-level signals: log(stars) / log(skill_count + 1)
+
+# API behaviour
+api:
+  per_page: 100           # results per page for search endpoints
+  timeout_seconds: 30     # per-request timeout
+  max_retries: 3          # exponential backoff retries on transient failures
+  progress_log_interval: 100  # log progress every N repos

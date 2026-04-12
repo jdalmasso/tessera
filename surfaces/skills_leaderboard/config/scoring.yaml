@@ -1,0 +1,105 @@
+# Scoring weights and parameters for the three leaderboard methodologies.
+# All weights within a methodology must sum to 100.
+
+methodologies:
+  trending:
+    description: >
+      Ranks skills by momentum: commit velocity, acceleration, and consistency.
+      Surfaces skills gaining traction before they become mainstream.
+    weights:
+      velocity: 25
+      adoption: 20
+      freshness: 20
+      documentation: 15
+      contributors: 10
+      code_quality: 10
+
+  popular:
+    description: >
+      Ranks skills by ecosystem adoption: stars, forks, contributors, and
+      community signals. Shows what the community has validated.
+    weights:
+      velocity: 10
+      adoption: 30
+      freshness: 20
+      documentation: 15
+      contributors: 15
+      code_quality: 10
+
+  well_rounded:
+    description: >
+      Ranks skills by overall strength across documentation, code quality,
+      adoption, and activity. Rewards skills with no weak spots.
+    weights:
+      velocity: 10
+      adoption: 15
+      freshness: 15
+      documentation: 25
+      contributors: 10
+      code_quality: 25
+
+# General thresholds
+thresholds:
+  min_skill_md_chars: 100         # SKILL.md must be at least this many characters
+  min_age_days: 14                # repos younger than this use default velocity score
+  min_age_velocity_default: 0.5  # default velocity score for repos under min_age_days
+
+# Velocity dimension parameters
+velocity:
+  window_days: 30        # commits last N days vs previous N days
+  consistency_days: 90   # look back window for unique commit weeks
+  consistency_weeks: 13  # total weeks in consistency_days (90/7 ≈ 13)
+  acceleration_cap: 2.0  # cap the acceleration ratio at this value
+
+# Adoption dimension parameters
+adoption:
+  weights:
+    stars: 0.5
+    forks: 0.3
+    watchers: 0.2
+  # log-normalized against corpus max: log(x+1) / log(max+1)
+
+# Freshness dimension parameters
+freshness:
+  half_life_days: 30          # exponential decay: 0.5 score at this many days since last commit
+  activity_sigmoid_mid: 5     # sigmoid: 0.5 score at this many commits in last 90d
+  activity_sigmoid_sat: 20    # sigmoid: 1.0 score at this many commits in last 90d
+  maturity_days: 30           # repos older than this receive maturity bonus
+  maturity_bonus: 0.05        # maturity bonus value
+  weights:
+    decay: 0.5
+    activity: 0.4
+    maturity: 0.1
+
+# Documentation dimension parameters
+documentation:
+  description_min_chars: 20   # description field must be at least this many characters
+  line_count_low: 50          # sigmoid: 0 score below this line count
+  line_count_mid: 100         # sigmoid: 0.5 score at this line count
+  line_count_high: 300        # sigmoid: 1.0 score at this line count
+  weights:
+    has_frontmatter: 0.10
+    has_name: 0.05
+    has_description: 0.15
+    line_count: 0.20
+    has_examples: 0.15
+    has_usage: 0.10
+    has_readme: 0.10
+    has_scripts: 0.075
+    has_references: 0.075
+
+# Contributors dimension parameters
+contributors:
+  log_cap: 10   # cap contributor count at this value for scoring
+  # log curve: log(contributors+1) / log(log_cap+1)
+  # 1 contributor → 0.29, 2 → 0.46, 5 → 0.75, 10 → 1.0
+
+# Code quality dimension parameters
+code_quality:
+  signals:
+    - has_license
+    - has_workflows
+    - has_tests
+    - has_gitignore
+    - has_topics
+  # score = matched_signals / total_signals

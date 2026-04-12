@@ -1,0 +1,23 @@
+# Static site generation settings.
+
+title: "Tessera Skills Leaderboard"
+subtitle: "Discover and rank the best Claude Code Skills on GitHub"
+github_repo: "https://github.com/tessera-vc/tessera"
+
+# Timezone for displaying the "last updated" timestamp
+timezone: "America/New_York"
+timezone_label: "ET"
+
+# How many entries to show in each leaderboard section
+top_n_main: 10       # main leaderboard (Trending top N)
+top_n_category: 10   # per-category sections
+
+# Display caps for the main leaderboard only (per-category sections are uncapped)
+display_caps:
+  max_per_repo: 3    # max skills shown from a single repo
+  max_per_author: 5  # max skills shown from a single author/org
+
+# Collections (monorepos with many skills)
+collections:
+  min_skills: 10         # minimum skill count to appear in Top Collections
+  top_n_for_ranking: 3   # rank collections by average score of their top N skills
