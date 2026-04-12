@@ -1,42 +1,40 @@
 # Categorization
 
-> **Stub** — full content added in Phase 5.
-
 This document describes how each skill is assigned to one of 15 categories.
 
 ## Categories
 
-1. Backend
-2. Frontend & Design
-3. DevOps & Infra
-4. Security
-5. Testing & QA
-6. Data & AI
-7. Research
-8. Documentation
-9. Productivity & Workflow
-10. Consulting & Strategy
-11. Back-Office
-12. Marketing & Content
-13. Creative & Media
-14. Integrations
-15. Other
+| # | Category | Covers |
+|---|----------|--------|
+| 1 | Backend | Server frameworks, APIs, databases, system design, CLIs, SDKs |
+| 2 | Frontend & Design | UI components, CSS, design systems, themes, responsive layouts |
+| 3 | DevOps & Infra | CI/CD, Docker, K8s, cloud providers, Terraform, deployment |
+| 4 | Security | Audits, OWASP, vulnerability scanning, compliance, pen testing |
+| 5 | Testing & QA | Unit/integration/e2e testing, debugging, test automation |
+| 6 | Data & AI | ML pipelines, model training, data processing, analytics |
+| 7 | Research | Literature review, paper analysis, deep research, fact-checking, academic |
+| 8 | Documentation | Docs generation, READMEs, changelogs, API docs, technical writing |
+| 9 | Productivity & Workflow | Project management, Agile, Git workflows, task automation |
+| 10 | Consulting & Strategy | Market research, competitive analysis, frameworks, due diligence, advisory |
+| 11 | Back-Office | HR, finance, legal, internal comms, compliance operations |
+| 12 | Marketing & Content | SEO, copywriting, social media, newsletters, content strategy |
+| 13 | Creative & Media | Art, music, video, audio, generative content |
+| 14 | Integrations | MCP servers, API connectors, third-party service automation |
+| 15 | Other | Fallback for skills that don't match any above |
 
 ## Cascade Logic
 
-Each skill is categorized via a six-level cascade (first match wins):
+Each skill is assigned to exactly one category via a six-level cascade. Each level fires only if the previous produced no match. First match wins.
 
-1. Explicit SKILL.md frontmatter `category` or `tags` field
-2. Keyword match on SKILL.md description + name
-3. GitHub repo topics
-4. Directory path heuristics (monorepos)
-5. README keyword scan (first 500 characters)
-6. Default to **Other**
+1. **Explicit frontmatter** — `category` or `tags` field in SKILL.md YAML frontmatter maps directly to a category
+2. **Keyword match on name + description** — SKILL.md `name` and `description` fields are scanned against per-category keyword lists
+3. **GitHub repo topics** — repo topics are mapped to categories
+4. **Directory path heuristics** — for monorepos, the parent directory name is used (e.g. `engineering/` → Backend)
+5. **README keyword scan** — first 500 characters of README.md are scanned
+6. **Default to Other** — fallback when no earlier level produced a match
 
-When multiple categories match at the same level, the category with the most keyword matches wins.
+When multiple categories match at the same cascade level, the category with the most keyword matches wins.
 
 ## Keyword Lists
 
 See `config/categories.yaml` for the full keyword lists per category.
-
-_Full narrative documentation to be completed in Phase 5._
