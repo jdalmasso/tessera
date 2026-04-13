@@ -14,7 +14,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import statistics
 from collections import defaultdict
@@ -22,7 +21,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from data.store import get_connection, get_latest_completed_run, get_previous_completed_run
@@ -105,7 +103,6 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
     computed. Otherwise all skills are marked as NEW.
     """
     site_cfg        = config["site"]
-    scoring_cfg     = config["scoring"]
     categories_cfg  = config["categories"]["categories"]
     entity_scores   = data["entity_scores"]
     entity_meta     = data["entity_meta"]
@@ -131,7 +128,6 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
         meta = entity_meta[eid]
         repo = meta["metadata"].get("repo", eid.replace("skill:", "").split(":")[0])
         author = repo.split("/")[0] if "/" in repo else repo
-        pushed_at = ""
         return {
             "entity_id":          eid,
             "rank":               rank,
@@ -142,7 +138,7 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
             "repo":               repo,
             "category":           meta["category"],
             "category_name":      _category_name(meta["category"], categories_cfg),
-            "description":        meta.get("metadata", {}).get("description") or "",
+            "description":        meta.get("description") or "",
             "stars":              meta["metadata"].get("stars", 0),
             "last_updated":       last_updated,
             "composite_trending": s.get("composite:trending", 0.0),
