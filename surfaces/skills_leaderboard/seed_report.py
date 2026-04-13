@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 import os
+import sqlite3
 import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -173,7 +174,7 @@ def collect_run_data(conn: Any, run_id: str) -> dict:
                 pushed_at_map[ref] = payload.get("pushed_at", "")
             except (json.JSONDecodeError, TypeError):
                 pass
-    except Exception:
+    except sqlite3.OperationalError:
         pass  # raw_signals table may not exist in test fixtures
 
     for eid, meta in entity_meta.items():
