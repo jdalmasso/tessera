@@ -187,6 +187,8 @@ class TestPerRepoIsolation:
             return self._make_repo_data(full)
 
         client.get_repo.side_effect = get_repo_side_effect
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
         client.get_contents.return_value = [
             {"name": "SKILL.md", "type": "file", "path": "SKILL.md"},
         ]
