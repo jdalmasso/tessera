@@ -9,32 +9,43 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run pipeline
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        run: python -m surfaces.skills_leaderboard.pipeline
-      - name: Build site
-        run: python -m surfaces.skills_leaderboard.build
-      - name: Deploy to GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: surfaces/skills_leaderboard/site/
-
-  deploy:
-    needs: update
-    runs-on: ubuntu-latest
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - name: Deploy
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Restore DB cache
+        uses: actions/cache@v4
+        with:
+          path: db/tessera.db
+          key: tessera-db-${{ github.run_id }}
+          restore-keys: |
+            tessera-db-
+
+      - name: Run pipeline
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: python -m surfaces.skills_leaderboard.pipeline
+
+      - name: Build site
+        run: python -m surfaces.skills_leaderboard.build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/
+
+      - name: Deploy to GitHub Pages
+        id: deploy
         uses: actions/deploy-pages@v4
