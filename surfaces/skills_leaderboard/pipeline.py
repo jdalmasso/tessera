@@ -568,86 +568,89 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
     filters = config["discovery"].get("filters", {})
 
     conn = get_connection(db_path or str(DB_PATH))
-    init_db(conn)
-
-    run_id = str(uuid.uuid4())
-    started_at = _utcnow_str()
-
-    upsert_signal_source(conn, SOURCE_ID, "GitHub API", last_run_at=started_at)
-    start_pipeline_run(conn, run_id, SURFACE_ID, started_at)
-
-    client = GitHubClient(token=token)
-
     try:
-        # --- Discovery ---
-        logger.info("Starting discovery (cap=%d)...", cap)
-        discovered = discover(client, config["discovery"], max_repos=cap)
-        logger.info("Discovered %d repos.", len(discovered))
+        init_db(conn)
 
-        # --- Batch-then-filter ingestion ---
-        valid_skills = 0
-        errors = 0
+        run_id = str(uuid.uuid4())
+        started_at = _utcnow_str()
 
-        for i, dr in enumerate(discovered):
-            if i > 0 and i % log_interval == 0:
-                logger.info(
-                    "Processed %d/%d repos, %d valid skills found, %d errors skipped",
-                    i, len(discovered), valid_skills, errors,
-                )
+        upsert_signal_source(conn, SOURCE_ID, "GitHub API", last_run_at=started_at)
+        start_pipeline_run(conn, run_id, SURFACE_ID, started_at)
 
-            owner, repo_name = dr.full_name.split("/", 1)
-            try:
-                # Fetch repo metadata first (batch step)
-                repo_data = client.get_repo(owner, repo_name)
-                if not repo_data:
+        client = GitHubClient(token=token)
+
+        try:
+            # --- Discovery ---
+            logger.info("Starting discovery (cap=%d)...", cap)
+            discovered = discover(client, config["discovery"], max_repos=cap)
+            logger.info("Discovered %d repos.", len(discovered))
+
+            # --- Batch-then-filter ingestion ---
+            valid_skills = 0
+            errors = 0
+
+            for i, dr in enumerate(discovered):
+                if i > 0 and i % log_interval == 0:
+                    logger.info(
+                        "Processed %d/%d repos, %d valid skills found, %d errors skipped",
+                        i, len(discovered), valid_skills, errors,
+                    )
+
+                owner, repo_name = dr.full_name.split("/", 1)
+                try:
+                    # Fetch repo metadata first (batch step)
+                    repo_data = client.get_repo(owner, repo_name)
+                    if not repo_data:
+                        errors += 1
+                        continue
+
+                    # Filter invalid repos
+                    if filters.get("exclude_forks") and repo_data.get("fork"):
+                        continue
+                    if filters.get("exclude_archived") and repo_data.get("archived"):
+                        continue
+
+                    # Fetch remaining signals for valid repos
+                    count = ingest_repo(
+                        client=client,
+                        repo_data=repo_data,
+                        skill_paths=dr.skill_paths,
+                        config=config,
+                        run_id=run_id,
+                        conn=conn,
+                    )
+                    valid_skills += count
+
+                except Exception as exc:
+                    logger.warning("Error processing %s: %s", dr.full_name, exc)
                     errors += 1
-                    continue
 
-                # Filter invalid repos
-                if filters.get("exclude_forks") and repo_data.get("fork"):
-                    continue
-                if filters.get("exclude_archived") and repo_data.get("archived"):
-                    continue
+            logger.info(
+                "Ingestion complete: %d valid skills, %d errors.", valid_skills, errors
+            )
 
-                # Fetch remaining signals for valid repos
-                count = ingest_repo(
-                    client=client,
-                    repo_data=repo_data,
-                    skill_paths=dr.skill_paths,
-                    config=config,
-                    run_id=run_id,
-                    conn=conn,
-                )
-                valid_skills += count
+            # --- Scoring + entity resolution ---
+            logger.info("Scoring skills...")
+            scored = score_and_store_skills(conn, run_id, config)
+            logger.info("Scored %d skills.", scored)
 
-            except Exception as exc:
-                logger.warning("Error processing %s: %s", dr.full_name, exc)
-                errors += 1
+            completed_at = _utcnow_str()
+            complete_pipeline_run(
+                conn, run_id, completed_at,
+                stats={"repos_discovered": len(discovered),
+                       "valid_skills": valid_skills,
+                       "scored_skills": scored,
+                       "errors": errors},
+            )
 
-        logger.info(
-            "Ingestion complete: %d valid skills, %d errors.", valid_skills, errors
-        )
-
-        # --- Scoring + entity resolution ---
-        logger.info("Scoring skills...")
-        scored = score_and_store_skills(conn, run_id, config)
-        logger.info("Scored %d skills.", scored)
-
-        completed_at = _utcnow_str()
-        complete_pipeline_run(
-            conn, run_id, completed_at,
-            stats={"repos_discovered": len(discovered),
-                   "valid_skills": valid_skills,
-                   "scored_skills": scored,
-                   "errors": errors},
-        )
-
-    except Exception as exc:
-        logger.exception("Pipeline failed: %s", exc)
-        failed_at = _utcnow_str()
-        complete_pipeline_run(conn, run_id, failed_at, status=RUN_STATUS_FAILED,
-                              stats={"error": str(exc)})
-        raise
+        except Exception as exc:
+            logger.exception("Pipeline failed: %s", exc)
+            failed_at = _utcnow_str()
+            complete_pipeline_run(conn, run_id, failed_at, status=RUN_STATUS_FAILED,
+                                  stats={"error": str(exc)})
+            raise
+    finally:
+        conn.close()
 
     return run_id
 
