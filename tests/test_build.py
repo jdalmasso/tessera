@@ -9,9 +9,7 @@ Covers:
   - main(): writes index.html, raises on missing run
 """
 
-import json
 import pytest
-from pathlib import Path
 from collections import defaultdict
 
 from data.store import (
@@ -78,10 +76,11 @@ def _make_data(entities: list[dict]) -> dict:
     for e in entities:
         entity_scores[e["id"]] = e["scores"]
         entity_meta[e["id"]]   = {
-            "name":     e["name"],
-            "category": e.get("category", "backend"),
-            "metadata": {"repo": e.get("repo", "alice/repo"),
-                         "stars": e.get("stars", 10)},
+            "name":        e["name"],
+            "category":    e.get("category", "backend"),
+            "description": e.get("description", ""),
+            "metadata":    {"repo": e.get("repo", "alice/repo"),
+                            "stars": e.get("stars", 10)},
         }
     return {
         "run_meta": {
@@ -148,6 +147,23 @@ class TestHelpers:
 # ---------------------------------------------------------------------------
 
 class TestBuildContext:
+
+    def test_description_passed_through_to_skill_dict(self):
+        entities = [
+            {"id": "skill:a/r1", "name": "MySkill", "repo": "a/r1",
+             "description": "Does something useful", "scores": _scores()},
+        ]
+        ctx = build_context(_make_data(entities), _CONFIG)
+        skill = ctx["main_skills"][0]
+        assert skill["description"] == "Does something useful"
+
+    def test_missing_description_defaults_to_empty_string(self):
+        entities = [
+            {"id": "skill:a/r1", "name": "MySkill", "repo": "a/r1",
+             "scores": _scores()},  # no description key
+        ]
+        ctx = build_context(_make_data(entities), _CONFIG)
+        assert ctx["main_skills"][0]["description"] == ""
 
     def test_main_skills_sorted_by_trending_desc(self):
         entities = [

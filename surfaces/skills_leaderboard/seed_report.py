@@ -120,7 +120,7 @@ def collect_run_data(conn: Any, run_id: str) -> dict:
     rows = conn.execute(
         """
         SELECT s.entity_id, s.dimension, s.value,
-               e.name, e.category, e.metadata
+               e.name, e.category, e.description, e.metadata
         FROM   scores s
         JOIN   entities e ON e.id = s.entity_id
         WHERE  s.run_id = ?
@@ -140,9 +140,10 @@ def collect_run_data(conn: Any, run_id: str) -> dict:
             except (json.JSONDecodeError, TypeError):
                 meta = {}
             entity_meta[eid] = {
-                "name":     row["name"],
-                "category": row["category"],
-                "metadata": meta,
+                "name":        row["name"],
+                "category":    row["category"],
+                "description": row["description"] or "",
+                "metadata":    meta,
             }
         entity_scores[eid][row["dimension"]] = row["value"]
 
