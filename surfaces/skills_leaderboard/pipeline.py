@@ -105,7 +105,7 @@ def _compute_commit_windows(commits: list[dict]) -> dict[str, int]:
     Given a list of commit dicts from the GitHub API, compute the four
     commit-window metrics used by velocity and freshness scoring.
     """
-    now = _utcnow().replace(tzinfo=None)  # naive UTC for comparison with stripped commit times
+    now = _utcnow()
     since_30d = now - datetime.timedelta(days=30)
     since_60d = now - datetime.timedelta(days=60)
 
@@ -116,7 +116,7 @@ def _compute_commit_windows(commits: list[dict]) -> dict[str, int]:
             continue
         try:
             dt = datetime.datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            commit_datetimes.append(dt.replace(tzinfo=None))
+            commit_datetimes.append(dt)
         except ValueError:
             continue
 

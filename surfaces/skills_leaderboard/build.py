@@ -43,7 +43,7 @@ def _to_et(utc_str: str) -> str:
     try:
         dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
         et = dt.astimezone(timezone(timedelta(hours=-4)))   # EDT; -5 for EST
-        return et.strftime("%b %-d, %Y %H:%M ET")
+        return et.strftime("%b %d, %Y %H:%M ET").replace(" 0", "  ")
     except (ValueError, AttributeError):
         return utc_str
 

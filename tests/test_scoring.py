@@ -358,6 +358,16 @@ class TestContributors:
         jump_9_10 = score_contributors(10, config) - score_contributors(9, config)
         assert jump_1_2 > jump_9_10
 
+    def test_zero_log_cap_returns_zero(self):
+        """log_cap=0 must not cause ZeroDivisionError."""
+        cfg = {"contributors": {"log_cap": 0}}
+        assert score_contributors(5, cfg) == 0.0
+
+    def test_negative_log_cap_returns_zero(self):
+        """Negative log_cap is treated as invalid — returns 0.0."""
+        cfg = {"contributors": {"log_cap": -1}}
+        assert score_contributors(5, cfg) == 0.0
+
 
 # ---------------------------------------------------------------------------
 # Code Quality

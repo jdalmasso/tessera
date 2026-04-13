@@ -427,3 +427,69 @@ class TestGracefulDegradation:
 
         count = score_and_store_skills(db, run_id, config)
         assert count == 1
+
+
+# ---------------------------------------------------------------------------
+# _compute_commit_windows
+# ---------------------------------------------------------------------------
+
+class TestComputeCommitWindows:
+    """Tests for _compute_commit_windows — now timezone-aware throughout."""
+
+    def setup_method(self):
+        from surfaces.skills_leaderboard.pipeline import _compute_commit_windows
+        self._fn = _compute_commit_windows
+
+    def _make_commit(self, iso_date: str) -> dict:
+        return {"commit": {"author": {"date": iso_date}}}
+
+    def test_empty_commits_returns_zeros(self):
+        result = self._fn([])
+        assert result == {
+            "commit_count_30d": 0,
+            "commit_count_prev_30d": 0,
+            "commit_count_90d": 0,
+            "unique_commit_weeks_90d": 0,
+        }
+
+    def test_recent_commit_counted_in_30d(self):
+        from surfaces.skills_leaderboard.pipeline import _utcnow
+        import datetime
+        recent = (_utcnow() - datetime.timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        result = self._fn([self._make_commit(recent)])
+        assert result["commit_count_30d"] == 1
+        assert result["commit_count_90d"] == 1
+
+    def test_old_commit_not_in_30d_but_in_90d(self):
+        from surfaces.skills_leaderboard.pipeline import _utcnow
+        import datetime
+        old = (_utcnow() - datetime.timedelta(days=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        result = self._fn([self._make_commit(old)])
+        assert result["commit_count_30d"] == 0
+        assert result["commit_count_prev_30d"] == 1
+        assert result["commit_count_90d"] == 1
+
+    def test_aware_iso_string_with_offset_handled(self):
+        """GitHub may return '+00:00' suffix — must not crash or be wrong."""
+        from surfaces.skills_leaderboard.pipeline import _utcnow
+        import datetime
+        recent = (_utcnow() - datetime.timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        result = self._fn([self._make_commit(recent)])
+        assert result["commit_count_30d"] == 1
+
+    def test_malformed_date_skipped(self):
+        result = self._fn([{"commit": {"author": {"date": "not-a-date"}}}])
+        assert result["commit_count_90d"] == 0
+
+    def test_unique_weeks_counted(self):
+        from surfaces.skills_leaderboard.pipeline import _utcnow
+        import datetime
+        now = _utcnow()
+        commits = [
+            self._make_commit((now - datetime.timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")),
+            self._make_commit((now - datetime.timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")),
+            self._make_commit((now - datetime.timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")),
+        ]
+        result = self._fn(commits)
+        # days 2 and 3 are in the same ISO week; day 10 is in a different week
+        assert result["unique_commit_weeks_90d"] == 2
