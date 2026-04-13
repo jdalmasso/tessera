@@ -2,7 +2,7 @@
 Tests for surfaces/skills_leaderboard/build.py
 
 Covers:
-  - _to_et, _format_int helpers
+  - _to_utc, _format_int helpers
   - build_context: main leaderboard, category sections, collections, stats
   - Display caps: max_per_repo, max_per_author
   - render: valid HTML output, required sections present
@@ -18,7 +18,7 @@ from data.store import (
     store_score, upsert_entity, upsert_signal_source,
 )
 from surfaces.skills_leaderboard.build import (
-    _to_et, _format_int, _category_name, _fetch_previous_ranks, _time_ago,
+    _to_utc, _format_int, _category_name, _fetch_previous_ranks, _time_ago,
     build_context, render, main,
 )
 
@@ -127,18 +127,18 @@ class TestHelpers:
     def test_format_int_bad_input(self):
         assert _format_int("n/a") == "n/a"
 
-    def test_to_et_valid(self):
-        result = _to_et("2026-04-12T14:00:00Z")
+    def test_to_utc_valid(self):
+        result = _to_utc("2026-04-12T14:00:00Z")
         assert "2026" in result
         assert "UTC" in result
 
-    def test_to_et_formats_correctly(self):
+    def test_to_utc_formats_correctly(self):
         # Should produce "YYYY-MM-DD HH:MM UTC"
-        result = _to_et("2026-04-12T14:30:00Z")
+        result = _to_utc("2026-04-12T14:30:00Z")
         assert result == "2026-04-12 14:30 UTC"
 
-    def test_to_et_invalid(self):
-        result = _to_et("not-a-date")
+    def test_to_utc_invalid(self):
+        result = _to_utc("not-a-date")
         assert result == "not-a-date"
 
     def test_category_name_found(self):

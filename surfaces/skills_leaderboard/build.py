@@ -38,7 +38,7 @@ SURFACE_ID = "skills_leaderboard"
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _to_et(utc_str: str) -> str:
+def _to_utc(utc_str: str) -> str:
     """Convert an ISO-8601 UTC string to a human-readable UTC string."""
     try:
         dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
@@ -149,7 +149,7 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
     min_coll_skills = site_cfg.get("collections", {}).get("min_skills", 2)
     top_n_coll_rank = max(1, site_cfg.get("collections", {}).get("top_n_for_ranking", 3))
 
-    last_updated = _to_et(run_meta.get("completed_at", ""))
+    last_updated = _to_utc(run_meta.get("completed_at", ""))
 
     # ── Rank deltas from previous run ──
     prev_ranks: dict[str, int] = {}
