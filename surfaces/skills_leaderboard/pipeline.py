@@ -267,44 +267,49 @@ def ingest_repo(
     # --- Commit signals (velocity + freshness) ---
     since_90d = (_utcnow() - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
     commits = client.get_commits(owner, repo_name, since=since_90d)
-    store_raw_signal(
-        conn, SOURCE_ID, "commits", full_name,
-        _compute_commit_windows(commits),
-        now, run_id,
-    )
 
     # --- Contributor signal ---
     contributors = client.get_contributors(owner, repo_name)
-    store_raw_signal(
-        conn, SOURCE_ID, "contributors", full_name,
-        {"contributor_count": len(contributors)},
-        now, run_id,
-    )
 
-    # --- Skill file signals ---
-    for skill in valid_skills:
-        description = skill["description"]
+    # Batch all remaining writes for this repo into a single transaction so
+    # all inserts land in one fsync rather than one per store_raw_signal call.
+    with conn:
         store_raw_signal(
-            conn, SOURCE_ID, "skill_file", skill["entity_ref"],
-            {
-                "skill_path": skill["skill_path"],
-                "char_count": len(skill["content"]),
-                "line_count": count_lines(skill["content"]),
-                "has_frontmatter": bool(skill["fm"]),
-                "frontmatter_name": skill["fm"].get("name"),
-                "frontmatter_description": str(description)[:500] if description else None,
-                "frontmatter_category": skill["fm"].get("category"),
-                "frontmatter_tags": skill["fm"].get("tags", []),
-                "has_usage_section": has_section(
-                    skill["body"], "Usage", "How to Use", "How to use"
-                ),
-                "has_examples_section": has_section(skill["body"], "Examples", "Example"),
-                "has_readme": "readme.md" in skill["dir_names"],
-                "has_scripts_dir": "scripts" in skill["dir_names"],
-                "has_references_dir": "references" in skill["dir_names"],
-            },
+            conn, SOURCE_ID, "commits", full_name,
+            _compute_commit_windows(commits),
             now, run_id,
         )
+
+        store_raw_signal(
+            conn, SOURCE_ID, "contributors", full_name,
+            {"contributor_count": len(contributors)},
+            now, run_id,
+        )
+
+        # --- Skill file signals ---
+        for skill in valid_skills:
+            description = skill["description"]
+            store_raw_signal(
+                conn, SOURCE_ID, "skill_file", skill["entity_ref"],
+                {
+                    "skill_path": skill["skill_path"],
+                    "char_count": len(skill["content"]),
+                    "line_count": count_lines(skill["content"]),
+                    "has_frontmatter": bool(skill["fm"]),
+                    "frontmatter_name": skill["fm"].get("name"),
+                    "frontmatter_description": str(description)[:500] if description else None,
+                    "frontmatter_category": skill["fm"].get("category"),
+                    "frontmatter_tags": skill["fm"].get("tags", []),
+                    "has_usage_section": has_section(
+                        skill["body"], "Usage", "How to Use", "How to use"
+                    ),
+                    "has_examples_section": has_section(skill["body"], "Examples", "Example"),
+                    "has_readme": "readme.md" in skill["dir_names"],
+                    "has_scripts_dir": "scripts" in skill["dir_names"],
+                    "has_references_dir": "references" in skill["dir_names"],
+                },
+                now, run_id,
+            )
 
     return len(valid_skills)
 
