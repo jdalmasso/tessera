@@ -41,7 +41,7 @@ _SITE_CFG = {
     "title":          "Test Leaderboard",
     "subtitle":       "Test subtitle",
     "github_repo":    "https://github.com/test/repo",
-    "timezone_label": "ET",
+    "timezone_label": "UTC",
     "top_n_main":     3,
     "top_n_category": 2,
     "display_caps":   {"max_per_repo": 2, "max_per_author": 3},
@@ -130,14 +130,12 @@ class TestHelpers:
     def test_to_et_valid(self):
         result = _to_et("2026-04-12T14:00:00Z")
         assert "2026" in result
-        assert "ET" in result
+        assert "UTC" in result
 
-    def test_to_et_no_leading_zero_in_day(self):
-        # %-d was replaced with %d + strip to be cross-platform;
-        # single-digit days must not have a leading zero
-        result = _to_et("2026-04-05T14:00:00Z")
-        assert " 05" not in result   # old %-d behaviour was no zero; new strips it too
-        assert "Apr" in result
+    def test_to_et_formats_correctly(self):
+        # Should produce "YYYY-MM-DD HH:MM UTC"
+        result = _to_et("2026-04-12T14:30:00Z")
+        assert result == "2026-04-12 14:30 UTC"
 
     def test_to_et_invalid(self):
         result = _to_et("not-a-date")

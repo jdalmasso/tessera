@@ -5,8 +5,8 @@ subtitle: "Discover and rank the best Claude Code Skills on GitHub"
 github_repo: "https://github.com/jdalmasso/tessera"
 
 # Timezone for displaying the "last updated" timestamp
-timezone: "America/New_York"
-timezone_label: "ET"
+timezone: "UTC"
+timezone_label: "UTC"
 
 # How many entries to show in each leaderboard section
 top_n_main: 10       # main leaderboard (Trending top N)

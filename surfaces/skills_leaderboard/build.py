@@ -17,7 +17,7 @@ import argparse
 import os
 import statistics
 from collections import defaultdict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -39,11 +39,11 @@ SURFACE_ID = "skills_leaderboard"
 # ---------------------------------------------------------------------------
 
 def _to_et(utc_str: str) -> str:
-    """Convert an ISO-8601 UTC string to a human-readable ET string."""
+    """Convert an ISO-8601 UTC string to a human-readable UTC string."""
     try:
         dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
-        et = dt.astimezone(timezone(timedelta(hours=-4)))   # EDT; -5 for EST
-        return et.strftime("%b %d, %Y %H:%M ET").replace(" 0", "  ")
+        utc = dt.astimezone(timezone.utc)
+        return utc.strftime("%Y-%m-%d %H:%M UTC")
     except (ValueError, AttributeError):
         return utc_str
 
