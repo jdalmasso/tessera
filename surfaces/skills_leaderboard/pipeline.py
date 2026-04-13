@@ -472,7 +472,7 @@ def score_and_store_skills(
             continue
 
         # Temporal helpers
-        repo_age_days         = _days_between(repo_meta.get("created_at", ""), now, default=0)
+        repo_age_days         = _days_between(repo_meta.get("created_at", "2000-01-01T00:00:00Z"), now, default=9999)
         pushed_at_raw = repo_meta.get("pushed_at", "")
         if not pushed_at_raw:
             # pushed_at absent entirely → treat as fresh if repo is ≤ 30 days old,
