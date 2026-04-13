@@ -10,8 +10,6 @@ Covers:
   - is_valid_skill: minimum inclusion requirements
 """
 
-import pytest
-
 from utils.parsers import (
     count_lines,
     extract_frontmatter,

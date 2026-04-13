@@ -92,7 +92,7 @@ def _find_skill_paths(
 
 def _utcnow() -> datetime.datetime:
     """Return the current UTC time as a timezone-aware datetime."""
-    return datetime.datetime.now(datetime.UTC)
+    return datetime.datetime.now(datetime.timezone.utc)
 
 
 def _utcnow_str() -> str:

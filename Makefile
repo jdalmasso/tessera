@@ -1,17 +1,21 @@
 .PHONY: test pipeline build seed-run lint
 
+PYTHON := .venv/bin/python
+PYTEST := .venv/bin/pytest
+RUFF   := .venv/bin/ruff
+
 test:
-	pytest tests/
+	$(PYTEST) tests/
 
 pipeline:
-	python -m surfaces.skills_leaderboard.pipeline
+	$(PYTHON) -m surfaces.skills_leaderboard.pipeline
 
 build:
-	python -m surfaces.skills_leaderboard.build
+	$(PYTHON) -m surfaces.skills_leaderboard.build
 
 seed-run:
-	python -m surfaces.skills_leaderboard.pipeline
-	python -m surfaces.skills_leaderboard.seed_report
+	$(PYTHON) -m surfaces.skills_leaderboard.pipeline
+	$(PYTHON) -m surfaces.skills_leaderboard.seed_report
 
 lint:
-	ruff check .
+	$(RUFF) check .

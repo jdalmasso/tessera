@@ -6,7 +6,7 @@ requires a live GITHUB_TOKEN and is skipped otherwise.
 """
 
 import os
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
