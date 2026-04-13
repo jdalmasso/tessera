@@ -37,6 +37,24 @@ jobs:
           restore-keys: |
             tessera-db-
 
+      - name: Validate cached database
+        run: |
+          if [ -f db/tessera.db ]; then
+            python -c "
+          import sqlite3, sys
+          try:
+              conn = sqlite3.connect('db/tessera.db')
+              result = conn.execute('PRAGMA integrity_check').fetchone()
+              conn.close()
+              if result[0] != 'ok':
+                  print(f'DB integrity check failed: {result[0]}', file=sys.stderr)
+                  sys.exit(1)
+          except Exception as e:
+              print(f'DB validation error: {e}', file=sys.stderr)
+              sys.exit(1)
+          " || rm -f db/tessera.db && echo "Removed corrupt database, starting fresh"
+          fi
+
       - name: Run pipeline
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
@@ -53,3 +71,12 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs-${{ github.run_id }}
+          path: "*.log"
+          if-no-files-found: ignore
+          retention-days: 30
