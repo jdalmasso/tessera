@@ -175,7 +175,7 @@ def score_freshness(
     Final score: weighted sum (decay 0.5, activity 0.4, maturity 0.1).
     """
     fcfg = config.get("freshness", {})
-    half_life = fcfg.get("half_life_days", 30)
+    half_life = max(1, fcfg.get("half_life_days", 30))
     act_mid = fcfg.get("activity_sigmoid_mid", 5)
     act_sat = fcfg.get("activity_sigmoid_sat", 20)
     maturity_days = fcfg.get("maturity_days", 30)
