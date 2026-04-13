@@ -14,6 +14,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import statistics
 from collections import defaultdict
@@ -32,6 +33,8 @@ _TEMPLATE_DIR = Path(__file__).parent / "templates"
 DB_PATH = Path(os.environ.get("TESSERA_DB_PATH", _PROJECT_ROOT / "db" / "tessera.db"))
 BUILD_DIR = _PROJECT_ROOT / "build"
 SURFACE_ID = "skills_leaderboard"
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +347,7 @@ def main(
             )
         run_id = run_row["id"]
 
-    print(f"Building site for run {run_id} ...")
+    logger.info("Building site for run %s ...", run_id)
 
     config = load_config()
     data   = collect_run_data(conn, run_id)
@@ -356,7 +359,7 @@ def main(
     out_file = out_dir / "index.html"
     out_file.write_text(html, encoding="utf-8")
 
-    print(f"Site written → {out_file}  ({len(html):,} bytes, {len(ctx['main_skills'])} main skills)")
+    logger.info("Site written → %s  (%s bytes, %s main skills)", out_file, f"{len(html):,}", len(ctx['main_skills']))
     return out_file
 
 
