@@ -144,8 +144,38 @@ def collect_run_data(conn: Any, run_id: str) -> dict:
                 "category":    row["category"],
                 "description": row["description"] or "",
                 "metadata":    meta,
+                "pushed_at":   "",
             }
         entity_scores[eid][row["dimension"]] = row["value"]
+
+    # Enrich entity_meta with pushed_at from repo_metadata raw signals
+    pushed_at_map: dict[str, str] = {}
+    try:
+        meta_rows = conn.execute(
+            """
+            SELECT entity_ref, payload
+            FROM raw_signals
+            WHERE signal_type = 'repo_metadata' AND run_id = ?
+            """,
+            (run_id,),
+        ).fetchall()
+        seen: set[str] = set()
+        for mrow in meta_rows:
+            ref = mrow["entity_ref"]
+            if ref in seen:
+                continue
+            seen.add(ref)
+            try:
+                payload = json.loads(mrow["payload"])
+                pushed_at_map[ref] = payload.get("pushed_at", "")
+            except (json.JSONDecodeError, TypeError):
+                pass
+    except Exception:
+        pass  # raw_signals table may not exist in test fixtures
+
+    for eid, meta in entity_meta.items():
+        repo = eid[len("skill:"):].split(":")[0]
+        meta["pushed_at"] = pushed_at_map.get(repo, "")
 
     return {
         "run_meta":      run_meta,
