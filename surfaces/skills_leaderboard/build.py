@@ -25,7 +25,7 @@ from typing import Any, Optional
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from data.store import get_connection, get_latest_completed_run
+from data.store import get_connection, get_latest_completed_run, get_previous_completed_run
 from surfaces.skills_leaderboard.pipeline import load_config
 from surfaces.skills_leaderboard.seed_report import collect_run_data, dist_stats
 
@@ -58,6 +58,29 @@ def _format_int(value: Any) -> str:
         return str(value)
 
 
+def _fetch_previous_ranks(conn: Any, run_id: str) -> dict[str, int]:
+    """
+    Return a dict mapping entity_id → rank from the previous completed run.
+    Rank is computed by ordering composite:trending scores descending.
+    Returns an empty dict if there is no previous run.
+    """
+    prev_run = get_previous_completed_run(conn, SURFACE_ID, run_id)
+    if prev_run is None:
+        return {}
+
+    rows = conn.execute(
+        """
+        SELECT entity_id, value
+        FROM scores
+        WHERE dimension = 'composite:trending' AND run_id = ?
+        ORDER BY value DESC
+        """,
+        (prev_run["id"],),
+    ).fetchall()
+
+    return {row["entity_id"]: rank for rank, row in enumerate(rows, 1)}
+
+
 def _category_name(cat_id: str, categories_config: list[dict]) -> str:
     """Look up a category display name from the categories.yaml list."""
     for cat in categories_config:
@@ -70,13 +93,16 @@ def _category_name(cat_id: str, categories_config: list[dict]) -> str:
 # Context assembly
 # ---------------------------------------------------------------------------
 
-def build_context(data: dict, config: dict) -> dict:
+def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
     """
     Transform raw DB data (from collect_run_data) into the Jinja2
     template context.
 
     Returns a dict with keys: config, last_updated, main_skills,
     categories, collections, stats, css.
+
+    If *conn* is provided, rank deltas vs the previous completed run are
+    computed. Otherwise all skills are marked as NEW.
     """
     site_cfg        = config["site"]
     scoring_cfg     = config["scoring"]
@@ -93,6 +119,11 @@ def build_context(data: dict, config: dict) -> dict:
     top_n_coll_rank = site_cfg.get("collections", {}).get("top_n_for_ranking", 3)
 
     last_updated = _to_et(run_meta.get("completed_at", ""))
+
+    # ── Rank deltas from previous run ──
+    prev_ranks: dict[str, int] = {}
+    if conn is not None:
+        prev_ranks = _fetch_previous_ranks(conn, run_meta["run_id"])
 
     # ── Build flat skill list sorted by trending desc ──
     def _skill_dict(eid: str, rank: int, delta: int, is_new: bool) -> dict:
@@ -131,10 +162,15 @@ def build_context(data: dict, config: dict) -> dict:
         reverse=True,
     )
 
-    all_skills = [
-        _skill_dict(eid, rank, 0, True)
-        for rank, eid in enumerate(ranked_eids, 1)
-    ]
+    all_skills = []
+    for rank, eid in enumerate(ranked_eids, 1):
+        if eid in prev_ranks:
+            delta  = prev_ranks[eid] - rank   # positive = moved up
+            is_new = False
+        else:
+            delta  = 0
+            is_new = True
+        all_skills.append(_skill_dict(eid, rank, delta, is_new))
 
     # ── Main leaderboard with display caps ──
     main_skills: list[dict] = []
@@ -282,7 +318,7 @@ def main(
 
     config = load_config()
     data   = collect_run_data(conn, run_id)
-    ctx    = build_context(data, config)
+    ctx    = build_context(data, config, conn=conn)
     html   = render(ctx)
 
     out_dir = output_dir or BUILD_DIR

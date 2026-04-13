@@ -19,7 +19,8 @@ from data.store import (
     store_score, upsert_entity, upsert_signal_source,
 )
 from surfaces.skills_leaderboard.build import (
-    _to_et, _format_int, _category_name, build_context, render, main,
+    _to_et, _format_int, _category_name, _fetch_previous_ranks,
+    build_context, render, main,
 )
 
 # ---------------------------------------------------------------------------
@@ -384,3 +385,168 @@ class TestMain:
 
         with pytest.raises(RuntimeError, match="No completed pipeline run"):
             main(db_path=db_file, output_dir=tmp_path / "build")
+
+
+# ---------------------------------------------------------------------------
+# Rank deltas
+# ---------------------------------------------------------------------------
+
+def _seed_run_with_scores(conn, run_id, entity_score_map: dict[str, float]):
+    """
+    Seed a completed pipeline run with composite:trending scores.
+    entity_score_map: {entity_id: trending_score}
+
+    Uses a unique timestamp per run (derived from trailing integer in run_id)
+    so that get_previous_completed_run() can distinguish ordering via
+    completed_at < current.completed_at.
+    """
+    import re as _re
+    m = _re.search(r"(\d+)$", run_id)
+    day = int(m.group(1)) if m else 1
+    run_ts = f"2026-04-{day:02d}T10:00:00Z"
+
+    upsert_signal_source(conn, SOURCE_ID, "GitHub API", last_run_at=run_ts)
+    start_pipeline_run(conn, run_id, SURFACE_ID, run_ts)
+    for eid, score in entity_score_map.items():
+        repo = eid.replace("skill:", "").split(":")[0]
+        name = eid.split("/")[-1]
+        upsert_entity(conn, eid, "skill", name, None,
+                      {"repo": repo, "stars": 5}, "backend", run_ts)
+        store_score(conn, eid, "composite:trending", score, run_ts, run_id)
+        # also seed dim scores so build_context can read them
+        for dim in ["velocity", "adoption", "freshness", "documentation",
+                    "contributors", "code_quality",
+                    "composite:popular", "composite:well_rounded"]:
+            store_score(conn, eid, dim, 0.5 if not dim.startswith("composite") else 40.0,
+                        run_ts, run_id)
+    complete_pipeline_run(conn, run_id, run_ts, stats={"repos_discovered": len(entity_score_map)})
+
+
+class TestFetchPreviousRanks:
+
+    def test_no_previous_run_returns_empty(self, tmp_path):
+        db_file = str(tmp_path / "test.db")
+        conn = get_connection(db_file)
+        init_db(conn)
+        _seed_run_with_scores(conn, "run-1", {"skill:a/x": 80.0, "skill:a/y": 60.0})
+
+        result = _fetch_previous_ranks(conn, "run-1")
+        assert result == {}
+
+    def test_previous_run_ranks_correct(self, tmp_path):
+        db_file = str(tmp_path / "test.db")
+        conn = get_connection(db_file)
+        init_db(conn)
+
+        # Run 1: x=80, y=60, z=40 → ranks x=1, y=2, z=3
+        _seed_run_with_scores(conn, "run-1", {
+            "skill:a/x": 80.0, "skill:a/y": 60.0, "skill:a/z": 40.0
+        })
+        # Run 2: scores change
+        _seed_run_with_scores(conn, "run-2", {
+            "skill:a/x": 75.0, "skill:a/y": 70.0, "skill:a/z": 50.0
+        })
+
+        prev = _fetch_previous_ranks(conn, "run-2")
+        assert prev["skill:a/x"] == 1
+        assert prev["skill:a/y"] == 2
+        assert prev["skill:a/z"] == 3
+
+    def test_entity_not_in_previous_run_absent(self, tmp_path):
+        db_file = str(tmp_path / "test.db")
+        conn = get_connection(db_file)
+        init_db(conn)
+
+        _seed_run_with_scores(conn, "run-1", {"skill:a/x": 80.0})
+        _seed_run_with_scores(conn, "run-2", {"skill:a/x": 75.0, "skill:a/new": 90.0})
+
+        prev = _fetch_previous_ranks(conn, "run-2")
+        assert "skill:a/x" in prev
+        assert "skill:a/new" not in prev   # was not in previous run
+
+
+class TestRankDeltasInContext:
+
+    def test_new_skill_marked_is_new(self, tmp_path):
+        db_file = str(tmp_path / "test.db")
+        conn = get_connection(db_file)
+        init_db(conn)
+
+        # Only one run — no previous → all skills are NEW
+        _seed_run_with_scores(conn, "run-1", {"skill:a/x": 80.0})
+
+        from surfaces.skills_leaderboard.seed_report import collect_run_data
+        data = collect_run_data(conn, "run-1")
+        ctx  = build_context(data, _CONFIG, conn=conn)
+
+        skill = next(s for s in ctx["main_skills"] if s["entity_id"] == "skill:a/x")
+        assert skill["is_new"] is True
+        assert skill["delta"] == 0
+
+    def test_risen_skill_has_positive_delta(self, tmp_path):
+        db_file = str(tmp_path / "test.db")
+        conn = get_connection(db_file)
+        init_db(conn)
+
+        # Run 1: y ranked #1, x ranked #2
+        _seed_run_with_scores(conn, "run-1", {"skill:a/x": 60.0, "skill:a/y": 80.0})
+        # Run 2: x is now #1 (rose from #2), y is #2 (fell from #1)
+        _seed_run_with_scores(conn, "run-2", {"skill:a/x": 85.0, "skill:a/y": 70.0})
+
+        from surfaces.skills_leaderboard.seed_report import collect_run_data
+        data = collect_run_data(conn, "run-2")
+        ctx  = build_context(data, _CONFIG, conn=conn)
+
+        x = next(s for s in ctx["main_skills"] if s["entity_id"] == "skill:a/x")
+        y = next(s for s in ctx["main_skills"] if s["entity_id"] == "skill:a/y")
+
+        assert x["delta"] > 0   # x rose from #2 to #1
+        assert x["is_new"] is False
+        assert y["delta"] < 0   # y fell from #1 to #2
+        assert y["is_new"] is False
+
+    def test_unchanged_rank_has_zero_delta(self, tmp_path):
+        db_file = str(tmp_path / "test.db")
+        conn = get_connection(db_file)
+        init_db(conn)
+
+        _seed_run_with_scores(conn, "run-1", {"skill:a/x": 80.0, "skill:a/y": 60.0})
+        _seed_run_with_scores(conn, "run-2", {"skill:a/x": 82.0, "skill:a/y": 58.0})
+
+        from surfaces.skills_leaderboard.seed_report import collect_run_data
+        data = collect_run_data(conn, "run-2")
+        ctx  = build_context(data, _CONFIG, conn=conn)
+
+        x = next(s for s in ctx["main_skills"] if s["entity_id"] == "skill:a/x")
+        assert x["delta"] == 0
+        assert x["is_new"] is False
+
+    def test_delta_rendered_in_html(self, tmp_path):
+        db_file = str(tmp_path / "test.db")
+        conn = get_connection(db_file)
+        init_db(conn)
+
+        _seed_run_with_scores(conn, "run-1", {"skill:a/x": 60.0, "skill:a/y": 80.0})
+        _seed_run_with_scores(conn, "run-2", {"skill:a/x": 85.0, "skill:a/y": 70.0})
+
+        from surfaces.skills_leaderboard.seed_report import collect_run_data
+        data = collect_run_data(conn, "run-2")
+        ctx  = build_context(data, _CONFIG, conn=conn)
+        html = render(ctx)
+
+        assert "▲" in html   # x rose
+        assert "▼" in html   # y fell
+
+    def test_new_skill_shows_new_badge_in_html(self, tmp_path):
+        db_file = str(tmp_path / "test.db")
+        conn = get_connection(db_file)
+        init_db(conn)
+
+        _seed_run_with_scores(conn, "run-1", {"skill:a/x": 80.0})
+
+        from surfaces.skills_leaderboard.seed_report import collect_run_data
+        data = collect_run_data(conn, "run-1")
+        ctx  = build_context(data, _CONFIG, conn=conn)
+        html = render(ctx)
+
+        assert "NEW" in html
