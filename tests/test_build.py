@@ -11,13 +11,14 @@ Covers:
 
 import pytest
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from data.store import (
     get_connection, init_db, start_pipeline_run, complete_pipeline_run,
     store_score, upsert_entity, upsert_signal_source,
 )
 from surfaces.skills_leaderboard.build import (
-    _to_et, _format_int, _category_name, _fetch_previous_ranks,
+    _to_et, _format_int, _category_name, _fetch_previous_ranks, _time_ago,
     build_context, render, main,
 )
 
@@ -79,6 +80,7 @@ def _make_data(entities: list[dict]) -> dict:
             "name":        e["name"],
             "category":    e.get("category", "backend"),
             "description": e.get("description", ""),
+            "pushed_at":   e.get("pushed_at", "2026-04-01T10:00:00Z"),
             "metadata":    {"repo": e.get("repo", "alice/repo"),
                             "stars": e.get("stars", 10)},
         }
@@ -147,6 +149,53 @@ class TestHelpers:
     def test_category_name_not_found(self):
         result = _category_name("unknown_cat", _CATEGORIES_CFG["categories"])
         assert "Unknown Cat" == result or "unknown_cat" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# _time_ago
+# ---------------------------------------------------------------------------
+
+class TestTimeAgo:
+    """Pin _now so tests are not sensitive to the actual wall-clock date."""
+
+    _NOW = datetime(2026, 4, 13, 12, 0, 0, tzinfo=timezone.utc)
+
+    def _ago(self, iso_str: str) -> str:
+        return _time_ago(iso_str, _now=self._NOW)
+
+    def test_empty_string_returns_empty(self):
+        assert self._ago("") == ""
+
+    def test_invalid_string_falls_back(self):
+        result = self._ago("not-a-date")
+        assert result == "not-a-date"
+
+    def test_today(self):
+        assert self._ago("2026-04-13T10:00:00Z") == "today"
+
+    def test_yesterday(self):
+        assert self._ago("2026-04-12T10:00:00Z") == "1 day ago"
+
+    def test_five_days_ago(self):
+        assert self._ago("2026-04-08T10:00:00Z") == "5 days ago"
+
+    def test_one_week_ago(self):
+        assert self._ago("2026-04-06T10:00:00Z") == "1 week ago"
+
+    def test_two_weeks_ago(self):
+        assert self._ago("2026-03-30T10:00:00Z") == "2 weeks ago"
+
+    def test_one_month_ago(self):
+        assert self._ago("2026-03-13T10:00:00Z") == "1 month ago"
+
+    def test_three_months_ago(self):
+        assert self._ago("2026-01-13T10:00:00Z") == "3 months ago"
+
+    def test_one_year_ago(self):
+        assert self._ago("2025-04-13T10:00:00Z") == "1 year ago"
+
+    def test_two_years_ago(self):
+        assert self._ago("2024-04-13T10:00:00Z") == "2 years ago"
 
 
 # ---------------------------------------------------------------------------

@@ -48,6 +48,40 @@ def _to_et(utc_str: str) -> str:
         return utc_str
 
 
+def _time_ago(iso_str: str, _now: Optional[datetime] = None) -> str:
+    """Convert a UTC ISO-8601 timestamp to a human-readable relative string.
+
+    Examples: "today", "3 days ago", "2 weeks ago", "4 months ago", "1 year ago".
+    Returns an empty string if *iso_str* is empty; falls back to *iso_str* on
+    any parse error. Pass *_now* in tests to pin the reference time.
+    """
+    if not iso_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        now = _now if _now is not None else datetime.now(timezone.utc)
+        days = (now - dt).days
+    except (ValueError, AttributeError):
+        return iso_str
+
+    if days < 1:
+        return "today"
+    if days == 1:
+        return "1 day ago"
+    if days < 7:
+        return f"{days} days ago"
+    if days < 14:
+        return "1 week ago"
+    if days < 30:
+        return f"{days // 7} weeks ago"
+    if days < 60:
+        return "1 month ago"
+    if days < 365:
+        return f"{days // 30} months ago"
+    years = days // 365
+    return "1 year ago" if years == 1 else f"{years} years ago"
+
+
 def _format_int(value: Any) -> str:
     """Format an integer with comma thousands separator."""
     try:
@@ -140,7 +174,7 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
             "category_name":      _category_name(meta["category"], categories_cfg),
             "description":        meta.get("description") or "",
             "stars":              meta["metadata"].get("stars", 0),
-            "last_updated":       last_updated,
+            "last_updated":       _time_ago(meta.get("pushed_at") or ""),
             "composite_trending": s.get("composite:trending", 0.0),
             "composite_popular":  s.get("composite:popular", 0.0),
             "composite_well_rounded": s.get("composite:well_rounded", 0.0),
