@@ -113,7 +113,7 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
     max_per_repo    = site_cfg.get("display_caps", {}).get("max_per_repo", 3)
     max_per_author  = site_cfg.get("display_caps", {}).get("max_per_author", 5)
     min_coll_skills = site_cfg.get("collections", {}).get("min_skills", 2)
-    top_n_coll_rank = site_cfg.get("collections", {}).get("top_n_for_ranking", 3)
+    top_n_coll_rank = max(1, site_cfg.get("collections", {}).get("top_n_for_ranking", 3))
 
     last_updated = _to_et(run_meta.get("completed_at", ""))
 

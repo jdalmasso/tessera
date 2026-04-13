@@ -245,6 +245,17 @@ class TestBuildContext:
         ctx = build_context(_make_data(entities), _CONFIG)
         assert ctx["collections"] == []
 
+    def test_collections_top_n_for_ranking_zero_does_not_crash(self):
+        # top_n_for_ranking=0 previously caused statistics.mean([]) → StatisticsError
+        cfg = {**_CONFIG, "site": {**_SITE_CFG, "collections": {"min_skills": 2, "top_n_for_ranking": 0}}}
+        entities = [
+            {"id": "skill:alice/mono:a", "name": "A", "repo": "alice/mono", "scores": _scores(trending=80.0)},
+            {"id": "skill:alice/mono:b", "name": "B", "repo": "alice/mono", "scores": _scores(trending=60.0)},
+        ]
+        ctx = build_context(_make_data(entities), cfg)
+        # Should not raise; collection still computed with at least 1 skill
+        assert len(ctx["collections"]) == 1
+
     def test_stats_total_skills(self):
         entities = [
             {"id": f"skill:a/r{i}", "name": f"S{i}", "repo": f"a/r{i}", "scores": _scores()}
