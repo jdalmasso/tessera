@@ -41,7 +41,7 @@ from signals.github.scoring import (
     score_velocity,
 )
 from surfaces.skills_leaderboard.categorization import categorize
-from utils.parsers import count_lines, extract_frontmatter, has_section, is_valid_skill
+from utils.parsers import count_lines, extract_frontmatter, has_section, is_latin_script, is_valid_skill
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +202,12 @@ def ingest_repo(
 
         fm, body = extract_frontmatter(content)
         if not is_valid_skill(fm, content, min_chars=min_chars):
+            continue
+
+        # Filter non-Latin-script skills (Chinese, Japanese, Korean, Arabic, etc.)
+        # Latin-script languages (Spanish, French, German, etc.) pass through.
+        skill_text = f"{fm.get('name', '')} {fm.get('description', '')}"
+        if not is_latin_script(skill_text):
             continue
 
         # Check sibling files in the skill's directory

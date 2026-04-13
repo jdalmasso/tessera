@@ -8,11 +8,9 @@ categories:
     name: "Backend"
     description: "Server frameworks, APIs, databases, system design, CLIs, SDKs"
     keywords:
-      - api
-      - rest
+      - rest api
       - graphql
       - grpc
-      - server
       - backend
       - database
       - sql
@@ -26,7 +24,8 @@ categories:
       - flask
       - fastapi
       - express
-      - node
+      - nodejs
+      - node.js
       - rails
       - spring
       - golang
@@ -37,18 +36,21 @@ categories:
       - endpoint
       - schema
       - migration
-      - authentication
       - authorization
       - middleware
-      - webhook
+      - prisma
+      - hono
+      - bun
+      - supabase
+      - web server
 
   - id: frontend_design
     name: "Frontend & Design"
     description: "UI components, CSS, design systems, themes, responsive layouts"
     keywords:
       - frontend
-      - ui
-      - ux
+      - ui component
+      - ux design
       - react
       - vue
       - svelte
@@ -60,23 +62,18 @@ categories:
       - sass
       - scss
       - html
-      - component
       - design system
-      - theme
-      - responsive
-      - mobile
+      - responsive design
+      - mobile app
       - animation
       - accessibility
       - a11y
       - figma
       - storybook
-      - layout
+      - shadcn
+      - radix
       - typography
-      - color
-      - icon
-      - button
-      - form
-      - modal
+      - layout
 
   - id: devops_infra
     name: "DevOps & Infra"
@@ -112,6 +109,10 @@ categories:
       - logging
       - sre
       - reliability
+      - vercel
+      - netlify
+      - cloudflare
+      - pulumi
 
   - id: security
     name: "Security"
@@ -125,14 +126,13 @@ categories:
       - pentest
       - exploit
       - cve
-      - compliance
       - soc2
       - gdpr
       - hipaa
       - encryption
       - cryptography
       - authentication
-      - secrets
+      - secrets management
       - threat
       - risk
       - hardening
@@ -147,9 +147,8 @@ categories:
     description: "Unit/integration/e2e testing, debugging, test automation"
     keywords:
       - testing
-      - test
       - qa
-      - quality
+      - quality assurance
       - unit test
       - integration test
       - e2e
@@ -160,7 +159,6 @@ categories:
       - jest
       - pytest
       - debugging
-      - debug
       - assertion
       - mock
       - stub
@@ -169,17 +167,17 @@ categories:
       - benchmark
       - performance test
       - load test
+      - test automation
 
   - id: data_ai
     name: "Data & AI"
     description: "ML pipelines, model training, data processing, analytics"
     keywords:
       - machine learning
-      - ml
-      - ai
+      - ml model
       - llm
-      - model
-      - training
+      - ai agent
+      - model training
       - inference
       - neural network
       - deep learning
@@ -195,12 +193,17 @@ categories:
       - scikit
       - huggingface
       - embedding
-      - vector
+      - vector database
       - rag
       - fine-tuning
       - dataset
       - feature engineering
       - data science
+      - openai
+      - anthropic
+      - langchain
+      - llamaindex
+      - gpt
 
   - id: research
     name: "Research"
@@ -208,21 +211,18 @@ categories:
     keywords:
       - research
       - literature review
-      - paper
+      - research paper
       - academic
       - arxiv
       - citation
       - bibliography
       - fact-check
-      - investigation
-      - analysis
-      - survey
       - systematic review
       - hypothesis
-      - experiment
       - scholarly
-      - journal
       - peer review
+      - research report
+      - investigative
 
   - id: documentation
     name: "Documentation"
@@ -257,18 +257,16 @@ categories:
       - kanban
       - sprint
       - project management
-      - git
-      - branching
+      - git workflow
       - pull request
       - code review
-      - automation
-      - task
+      - refactoring
+      - pair programming
       - planning
       - retrospective
       - standup
       - jira
       - linear
-      - notion
       - ticketing
 
   - id: consulting_strategy
@@ -322,24 +320,22 @@ categories:
     description: "SEO, copywriting, social media, newsletters, content strategy"
     keywords:
       - marketing
-      - content
+      - content strategy
       - seo
       - copywriting
       - social media
       - newsletter
-      - email
-      - blog
+      - blog post
       - campaign
       - brand
       - engagement
-      - growth
       - conversion
       - landing page
       - ad copy
-      - content strategy
       - twitter
       - linkedin
       - instagram
+      - content marketing
 
   - id: creative_media
     name: "Creative & Media"
@@ -350,18 +346,16 @@ categories:
       - music
       - video
       - audio
-      - generative
-      - image
+      - generative art
       - illustration
       - photography
       - podcast
-      - script
       - storytelling
       - narrative
       - game
       - animation
-      - media
       - multimedia
+      - creative writing
 
   - id: integrations
     name: "Integrations"
@@ -369,6 +363,7 @@ categories:
     keywords:
       - integration
       - mcp
+      - mcp server
       - connector
       - plugin
       - extension
@@ -381,11 +376,12 @@ categories:
       - saas
       - stripe
       - slack
-      - notion
       - airtable
       - salesforce
       - hubspot
-      - intercom
+      - github api
+      - notion api
+      - linear api
 
   - id: other
     name: "Other"

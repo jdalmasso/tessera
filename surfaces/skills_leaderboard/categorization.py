@@ -35,11 +35,14 @@ def _count_matches(text: str, keywords: list[str]) -> int:
     return sum(1 for kw in keywords if kw in text_lower)
 
 
-def _best_match(text: str, categories: list[dict]) -> str | None:
+def _best_match(text: str, categories: list[dict], min_matches: int = 2) -> str | None:
     """
     Return the id of the category with the most keyword hits in *text*, or
-    None if no category matches.  The `other` catch-all (empty keyword list)
-    is never returned here.
+    None if no category has at least *min_matches* hits.
+
+    The `other` catch-all (empty keyword list) is never returned here.
+    Requiring min_matches > 1 prevents single generic keywords (e.g. "api",
+    "test", "model") from triggering a false-positive category assignment.
     """
     best_id: str | None = None
     best_count = 0
@@ -48,7 +51,7 @@ def _best_match(text: str, categories: list[dict]) -> str | None:
         if not keywords:
             continue
         count = _count_matches(text, keywords)
-        if count > best_count:
+        if count >= min_matches and count > best_count:
             best_count = count
             best_id = cat["id"]
     return best_id

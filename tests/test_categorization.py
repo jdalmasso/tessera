@@ -177,7 +177,7 @@ class TestLevel2NameDescription:
         assert _cat(name="Docker Deployment Workflow") == "devops_infra"
 
     def test_name_and_description_combined(self):
-        # name contributes "api", description contributes "server" → backend
+        # name contributes "api", description contributes "server" → 2 hits → backend
         assert _cat(name="API Helper", description="server-side logic") == "backend"
 
     def test_multi_word_keyword(self):
@@ -223,7 +223,8 @@ class TestLevel3RepoTopics:
 class TestLevel4PathHeuristics:
 
     def test_parent_dir_matches_category(self):
-        assert _cat(skill_path="skills/backend/SKILL.md") == "backend"
+        # Path contains "backend" + "fastapi" → 2 backend keyword hits
+        assert _cat(skill_path="skills/backend/fastapi/SKILL.md") == "backend"
 
     def test_nested_path(self):
         assert _cat(skill_path="collection/data_ai/model-training/SKILL.md") == "data_ai"
@@ -253,8 +254,9 @@ class TestLevel5ReadmeExcerpt:
         assert result == "other"
 
     def test_readme_within_500_chars_matches(self):
-        prefix = "x" * 490
-        result = _cat(readme_excerpt=prefix + " api")
+        # Need ≥2 keyword hits to trigger a match; use "api" + "rest" both within 500 chars
+        prefix = "x" * 488
+        result = _cat(readme_excerpt=prefix + " api rest")
         assert result == "backend"
 
     def test_level5_fires_when_all_others_empty(self):
@@ -293,9 +295,9 @@ class TestTiebreaker:
         assert result == "backend"
 
     def test_config_order_breaks_equal_ties(self):
-        # "graphql" → backend=1 hit, "helm" → devops_infra=1 hit; true tie (no substring overlap).
+        # backend=2 hits (api, rest), devops_infra=2 hits (docker, aws); true tie.
         # backend appears before devops_infra in _CONFIG → backend wins.
-        result = _cat(description="graphql helm")
+        result = _cat(description="api rest docker aws")
         assert result == "backend"
 
     def test_most_hits_wins_regardless_of_config_order(self):
@@ -320,7 +322,8 @@ class TestEdgeCases:
         assert _cat(frontmatter_tags=["  security  "]) == "security"
 
     def test_windows_path_separator(self):
-        assert _cat(skill_path="skills\\devops_infra\\SKILL.md") == "devops_infra"
+        # Path contains "devops" (in devops_infra) + "docker" → 2 devops_infra keyword hits
+        assert _cat(skill_path="skills\\devops_infra\\docker-deploy\\SKILL.md") == "devops_infra"
 
     def test_none_topics_treated_as_empty(self):
         # Should not raise; falls through to level 6
