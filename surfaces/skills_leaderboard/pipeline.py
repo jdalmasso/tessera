@@ -188,29 +188,13 @@ def ingest_repo(
         now, run_id,
     )
 
-    # Resolve skill paths for topic-search repos
+    # Resolve skill paths for repos found via topic search (no paths yet)
     if not skill_paths:
         skill_paths = _find_skill_paths(client, owner, repo_name, root)
 
-    # --- Commit signals (velocity + freshness) ---
-    since_90d = (_utcnow() - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    commits = client.get_commits(owner, repo_name, since=since_90d)
-    store_raw_signal(
-        conn, SOURCE_ID, "commits", full_name,
-        _compute_commit_windows(commits),
-        now, run_id,
-    )
-
-    # --- Contributor signal ---
-    contributors = client.get_contributors(owner, repo_name)
-    store_raw_signal(
-        conn, SOURCE_ID, "contributors", full_name,
-        {"contributor_count": len(contributors)},
-        now, run_id,
-    )
-
-    # --- Skill file signals ---
-    skill_count = 0
+    # --- Validate skill files first (before any expensive API calls) ---
+    # Accumulate valid skills; only proceed to commits/contributors if ≥1 is valid.
+    valid_skills: list[dict] = []
     for skill_path in skill_paths:
         content = client.get_file_content(owner, repo_name, skill_path)
         if not content:
@@ -230,30 +214,63 @@ def ingest_repo(
         if isinstance(dir_contents, list):
             dir_names = {e.get("name", "").lower() for e in dir_contents}
 
-        entity_ref = make_entity_id(full_name, skill_path)
-        description = fm.get("description")
+        valid_skills.append({
+            "skill_path":  skill_path,
+            "content":     content,
+            "fm":          fm,
+            "body":        body,
+            "dir_names":   dir_names,
+            "entity_ref":  make_entity_id(full_name, skill_path),
+            "description": fm.get("description"),
+        })
+
+    # No valid skills — skip commits and contributors entirely
+    if not valid_skills:
+        return 0
+
+    # --- Commit signals (velocity + freshness) ---
+    since_90d = (_utcnow() - datetime.timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    commits = client.get_commits(owner, repo_name, since=since_90d)
+    store_raw_signal(
+        conn, SOURCE_ID, "commits", full_name,
+        _compute_commit_windows(commits),
+        now, run_id,
+    )
+
+    # --- Contributor signal ---
+    contributors = client.get_contributors(owner, repo_name)
+    store_raw_signal(
+        conn, SOURCE_ID, "contributors", full_name,
+        {"contributor_count": len(contributors)},
+        now, run_id,
+    )
+
+    # --- Skill file signals ---
+    for skill in valid_skills:
+        description = skill["description"]
         store_raw_signal(
-            conn, SOURCE_ID, "skill_file", entity_ref,
+            conn, SOURCE_ID, "skill_file", skill["entity_ref"],
             {
-                "skill_path": skill_path,
-                "char_count": len(content),
-                "line_count": count_lines(content),
-                "has_frontmatter": bool(fm),
-                "frontmatter_name": fm.get("name"),
+                "skill_path": skill["skill_path"],
+                "char_count": len(skill["content"]),
+                "line_count": count_lines(skill["content"]),
+                "has_frontmatter": bool(skill["fm"]),
+                "frontmatter_name": skill["fm"].get("name"),
                 "frontmatter_description": str(description)[:500] if description else None,
-                "frontmatter_category": fm.get("category"),
-                "frontmatter_tags": fm.get("tags", []),
-                "has_usage_section": has_section(body, "Usage", "How to Use", "How to use"),
-                "has_examples_section": has_section(body, "Examples", "Example"),
-                "has_readme": "readme.md" in dir_names,
-                "has_scripts_dir": "scripts" in dir_names,
-                "has_references_dir": "references" in dir_names,
+                "frontmatter_category": skill["fm"].get("category"),
+                "frontmatter_tags": skill["fm"].get("tags", []),
+                "has_usage_section": has_section(
+                    skill["body"], "Usage", "How to Use", "How to use"
+                ),
+                "has_examples_section": has_section(skill["body"], "Examples", "Example"),
+                "has_readme": "readme.md" in skill["dir_names"],
+                "has_scripts_dir": "scripts" in skill["dir_names"],
+                "has_references_dir": "references" in skill["dir_names"],
             },
             now, run_id,
         )
-        skill_count += 1
 
-    return skill_count
+    return len(valid_skills)
 
 
 # ---------------------------------------------------------------------------

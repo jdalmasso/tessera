@@ -663,6 +663,19 @@ class TestIngestRepo:
         from surfaces.skills_leaderboard.pipeline import ingest_repo
         count = ingest_repo(client, self._make_repo_data(), [], config, "run-1", conn)
         assert count == 0
+        # Commits and contributors must NOT be fetched when no valid skill exists
+        client.get_commits.assert_not_called()
+        client.get_contributors.assert_not_called()
+
+    def test_valid_skill_fetches_commits_and_contributors(self, config):
+        """Commits and contributors are fetched only when ≥1 valid skill is found."""
+        conn = self._make_conn()
+        client = self._make_client()  # default content is valid
+        from surfaces.skills_leaderboard.pipeline import ingest_repo
+        count = ingest_repo(client, self._make_repo_data(), [], config, "run-1", conn)
+        assert count == 1
+        client.get_commits.assert_called_once()
+        client.get_contributors.assert_called_once()
 
     def test_provided_skill_paths_used(self, config):
         conn = self._make_conn()
@@ -670,6 +683,6 @@ class TestIngestRepo:
         from surfaces.skills_leaderboard.pipeline import ingest_repo
         count = ingest_repo(client, self._make_repo_data(), ["SKILL.md"], config, "run-1", conn)
         assert count == 1
-        # get_contents should not have been called to resolve skill paths
-        # (still called once for root metadata/code quality)
-        assert client.get_contributors.called
+        # Commits and contributors fetched because skill is valid
+        client.get_commits.assert_called_once()
+        client.get_contributors.assert_called_once()
