@@ -61,7 +61,12 @@ def has_section(content: str, *keywords: str) -> bool:
 
 
 def count_lines(content: str) -> int:
-    """Return the number of non-empty lines in the content."""
+    """Return the number of non-empty lines in the content.
+
+    A line is considered non-empty if ``line.strip()`` is truthy, i.e. it
+    contains at least one non-whitespace character. Blank lines and
+    whitespace-only lines are excluded from the count.
+    """
     return sum(1 for line in content.splitlines() if line.strip())
 
 
