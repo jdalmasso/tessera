@@ -1,27 +1,24 @@
 # Discovery configuration: search queries, caps, and filtering rules.
 
-max_repos: 6000  # stop discovery once this many unique repos are found (~6k is the GitHub Search API ceiling)
+max_repos: 6000  # safety ceiling; GitHub Search API yields ~900 results per shard
 
-# Phase 1: Repository searches sorted by stars.
-# Runs first to capture popular repos early.
-phase_1:
-  type: repo_search
-  queries:
-    - query: "topic:claude-skill"
-      sort: stars
-    - query: "topic:claude-code-skill"
-      sort: stars
-    - query: "topic:agent-skill"
-      sort: stars
-
-# Phase 2: Code searches to backfill repos without topics.
-# Runs after phase 1 until max_repos is reached.
-phase_2:
-  type: code_search
-  queries:
-    - query: 'filename:SKILL.md path:.claude/skills'
-    - query: 'filename:SKILL.md "claude" "skill"'
-    - query: "filename:SKILL.md"
+# Single high-precision query sharded by pushed-date to bypass GitHub code
+# search's ~900-result-per-query ceiling. Each shard appends a pushed:RANGE
+# filter so every date window gets its own ~900-result window.
+#
+# Why filename:SKILL.md path:.claude/skills?
+#   - Canonical Claude Code skill path — lowest false-positive rate
+#   - Broad filename:SKILL.md captures other ecosystems (OpenClaw, ClawdBot)
+#   - Topic searches (topic:claude-skill) are a small subset of path results
+#
+discovery:
+  query: "filename:SKILL.md path:.claude/skills"
+  shards:
+    - pushed: ">2025-06-01"
+    - pushed: "2025-01-01..2025-05-31"
+    - pushed: "2024-01-01..2024-12-31"
+    - pushed: "2023-01-01..2023-12-31"
+    - pushed: "<2023-01-01"
 
 # Filtering: a repo/skill is included only if ALL conditions pass.
 filters:
