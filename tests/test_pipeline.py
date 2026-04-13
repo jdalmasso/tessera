@@ -432,6 +432,42 @@ class TestGracefulDegradation:
         count = score_and_store_skills(db, run_id, config)
         assert count == 1
 
+    def test_malformed_json_payload_skips_skill(self, db, config):
+        """
+        A raw_signal row whose payload is not valid JSON causes
+        _get_latest_payload() to return None, which makes score_and_store_skills()
+        skip that skill entirely — no score rows should be written.
+
+        Regression test for issue #87.
+        """
+        run_id = "run-bad-json"
+        start_pipeline_run(db, run_id, SURFACE_ID, NOW)
+        full_name = "alice/badjson"
+        entity_ref = f"skill:{full_name}"
+
+        # Seed all repo-level signals normally so the skill would otherwise score.
+        _seed_repo(db, run_id, full_name)
+        _seed_skill(db, run_id, entity_ref)
+
+        # Corrupt the repo_metadata payload directly in the DB to simulate a
+        # malformed JSON row that bypassed validation at ingest time.
+        db.execute(
+            "UPDATE raw_signals SET payload = 'invalid json' "
+            "WHERE entity_ref = ? AND signal_type = 'repo_metadata' AND run_id = ?",
+            (full_name, run_id),
+        )
+        db.commit()
+
+        count = score_and_store_skills(db, run_id, config)
+
+        assert count == 0, "skill with malformed JSON payload must be skipped"
+
+        rows = db.execute(
+            "SELECT 1 FROM scores WHERE entity_id = ? AND run_id = ?",
+            (entity_ref, run_id),
+        ).fetchall()
+        assert rows == [], "no score rows should be written for a skipped skill"
+
 
 # ---------------------------------------------------------------------------
 # _compute_commit_windows
