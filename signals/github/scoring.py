@@ -331,6 +331,13 @@ def compute_composite(
         )
 
     weights = methodologies[methodology]["weights"]
+
+    total = sum(weights.values())
+    if abs(total - 100) > 0.01:
+        raise ValueError(
+            f"Weights for methodology {methodology!r} must sum to 100, got {total}"
+        )
+
     scores = {
         "velocity": velocity,
         "adoption": adoption,

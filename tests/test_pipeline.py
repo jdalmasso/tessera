@@ -35,11 +35,15 @@ NOW = "2026-04-12T10:00:00Z"
 CREATED_OLD = "2025-01-01T00:00:00Z"   # > 30 days ago → mature repo
 PUSHED_RECENT = "2026-04-01T00:00:00Z"  # 11 days ago → fresh
 
-EXPECTED_DIMENSIONS = {
-    "velocity", "adoption", "freshness", "documentation",
-    "contributors", "code_quality",
-    "composite:trending", "composite:popular", "composite:well_rounded",
-}
+def _expected_dimensions() -> set:
+    """Derive expected score dimensions from the real config (6 dims + N composites)."""
+    cfg = load_config()
+    base = {"velocity", "adoption", "freshness", "documentation", "contributors", "code_quality"}
+    composites = {f"composite:{m}" for m in cfg["scoring"]["methodologies"].keys()}
+    return base | composites
+
+
+EXPECTED_DIMENSIONS = _expected_dimensions()
 
 
 # ---------------------------------------------------------------------------

@@ -550,3 +550,18 @@ class TestCompositeScoring:
         with pytest.raises(ValueError, match="Unknown methodology"):
             compute_composite(**_ALL_ONES, methodology="nonexistent",
                               config=_COMPOSITE_CONFIG)
+
+    def test_weights_not_summing_to_100_raises(self):
+        """Weights that don't sum to 100 must raise ValueError."""
+        bad_config = {
+            "methodologies": {
+                "bad": {
+                    "weights": {
+                        "velocity": 20, "adoption": 20, "freshness": 20,
+                        "documentation": 10, "contributors": 10, "code_quality": 10,
+                    }
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="must sum to 100"):
+            compute_composite(**_ALL_ONES, methodology="bad", config=bad_config)

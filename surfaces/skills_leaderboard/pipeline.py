@@ -523,7 +523,7 @@ def score_and_store_skills(conn: Any, run_id: str, config: dict) -> int:
             store_score(conn, entity_ref, dim, round(value, 6), now, run_id)
 
         # --- Store composite scores ---
-        for methodology in ("trending", "popular", "well_rounded"):
+        for methodology in config["scoring"]["methodologies"].keys():
             composite = compute_composite(
                 velocity=vel,
                 adoption=adop,
