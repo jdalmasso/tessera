@@ -17,7 +17,7 @@ import argparse
 import os
 import statistics
 from collections import defaultdict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -38,12 +38,12 @@ SURFACE_ID = "skills_leaderboard"
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _to_et(utc_str: str) -> str:
-    """Convert an ISO-8601 UTC string to a human-readable ET string."""
+def _to_utc(utc_str: str) -> str:
+    """Convert an ISO-8601 UTC string to a human-readable UTC string."""
     try:
         dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
-        et = dt.astimezone(timezone(timedelta(hours=-4)))   # EDT; -5 for EST
-        return et.strftime("%b %d, %Y %H:%M ET").replace(" 0", "  ")
+        utc = dt.astimezone(timezone.utc)
+        return utc.strftime("%Y-%m-%d %H:%M UTC")
     except (ValueError, AttributeError):
         return utc_str
 
@@ -149,7 +149,7 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
     min_coll_skills = site_cfg.get("collections", {}).get("min_skills", 2)
     top_n_coll_rank = max(1, site_cfg.get("collections", {}).get("top_n_for_ranking", 3))
 
-    last_updated = _to_et(run_meta.get("completed_at", ""))
+    last_updated = _to_utc(run_meta.get("completed_at", ""))
 
     # ── Rank deltas from previous run ──
     prev_ranks: dict[str, int] = {}
