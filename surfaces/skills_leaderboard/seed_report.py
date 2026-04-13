@@ -408,24 +408,26 @@ def main(
     Returns the path of the written report.
     """
     conn = get_connection(db_path or str(DB_PATH))
+    try:
+        if run_id is None:
+            run_row = get_latest_completed_run(conn, SURFACE_ID)
+            if run_row is None:
+                raise RuntimeError(
+                    "No completed pipeline run found in the DB. "
+                    "Run 'make pipeline' first."
+                )
+            run_id = run_row["id"]
 
-    if run_id is None:
-        run_row = get_latest_completed_run(conn, SURFACE_ID)
-        if run_row is None:
-            raise RuntimeError(
-                "No completed pipeline run found in the DB. "
-                "Run 'make pipeline' first."
-            )
-        run_id = run_row["id"]
+        logger.info("Generating report for run %s ...", run_id)
+        data   = collect_run_data(conn, run_id)
+        report = generate_report(data)
 
-    logger.info("Generating report for run %s ...", run_id)
-    data   = collect_run_data(conn, run_id)
-    report = generate_report(data)
-
-    out = output_path or REPORT_PATH
-    out.write_text(report, encoding="utf-8")
-    logger.info("Report written → %s", out)
-    return out
+        out = output_path or REPORT_PATH
+        out.write_text(report, encoding="utf-8")
+        logger.info("Report written → %s", out)
+        return out
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

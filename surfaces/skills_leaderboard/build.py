@@ -338,29 +338,31 @@ def main(
     Build the static site. Returns the path to the written index.html.
     """
     conn = get_connection(db_path or str(DB_PATH))
+    try:
+        if run_id is None:
+            run_row = get_latest_completed_run(conn, SURFACE_ID)
+            if run_row is None:
+                raise RuntimeError(
+                    "No completed pipeline run found. Run 'make pipeline' first."
+                )
+            run_id = run_row["id"]
 
-    if run_id is None:
-        run_row = get_latest_completed_run(conn, SURFACE_ID)
-        if run_row is None:
-            raise RuntimeError(
-                "No completed pipeline run found. Run 'make pipeline' first."
-            )
-        run_id = run_row["id"]
+        logger.info("Building site for run %s ...", run_id)
 
-    logger.info("Building site for run %s ...", run_id)
+        config = load_config()
+        data   = collect_run_data(conn, run_id)
+        ctx    = build_context(data, config, conn=conn)
+        html   = render(ctx)
 
-    config = load_config()
-    data   = collect_run_data(conn, run_id)
-    ctx    = build_context(data, config, conn=conn)
-    html   = render(ctx)
+        out_dir = output_dir or BUILD_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file = out_dir / "index.html"
+        out_file.write_text(html, encoding="utf-8")
 
-    out_dir = output_dir or BUILD_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / "index.html"
-    out_file.write_text(html, encoding="utf-8")
-
-    logger.info("Site written → %s  (%s bytes, %s main skills)", out_file, f"{len(html):,}", len(ctx['main_skills']))
-    return out_file
+        logger.info("Site written → %s  (%s bytes, %s main skills)", out_file, f"{len(html):,}", len(ctx['main_skills']))
+        return out_file
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
