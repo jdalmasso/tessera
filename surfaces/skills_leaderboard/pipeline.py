@@ -87,6 +87,13 @@ def load_config() -> dict[str, Any]:
                 f"Config 'scoring.yaml': methodology {method_name!r} is missing required key: 'weights'"
             )
 
+    for method_name, method_cfg in scoring["methodologies"].items():
+        total = sum(method_cfg["weights"].values())
+        if abs(total - 100) > 0.01:
+            raise ValueError(
+                f"Methodology '{method_name}' weights must sum to 100, got {total}"
+            )
+
     categories = configs.get("categories")
     if not isinstance(categories, dict):
         raise ValueError("Config 'categories.yaml' must be a mapping at the top level")
