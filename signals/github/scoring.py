@@ -127,26 +127,17 @@ def score_adoption(
     if skill_count > 1:
         denom = math.log(skill_count + 1)
 
-        if stars > 0:
-            dampened_stars = math.log(stars + 1) / denom
-            stars_score = dampened_stars / math.log(corpus_max_stars + 1) if corpus_max_stars > 0 else 0.0
-            stars_score = min(stars_score, 1.0)
-        else:
-            stars_score = _log_normalise(stars, corpus_max_stars)
+        dampened_stars = math.log(stars + 1) / denom
+        stars_score = dampened_stars / math.log(corpus_max_stars + 1) if corpus_max_stars > 0 else 0.0
+        stars_score = min(stars_score, 1.0)
 
-        if forks > 0:
-            dampened_forks = math.log(forks + 1) / denom
-            forks_score = dampened_forks / math.log(corpus_max_forks + 1) if corpus_max_forks > 0 else 0.0
-            forks_score = min(forks_score, 1.0)
-        else:
-            forks_score = _log_normalise(forks, corpus_max_forks)
+        dampened_forks = math.log(forks + 1) / denom
+        forks_score = dampened_forks / math.log(corpus_max_forks + 1) if corpus_max_forks > 0 else 0.0
+        forks_score = min(forks_score, 1.0)
 
-        if watchers > 0:
-            dampened_watchers = math.log(watchers + 1) / denom
-            watchers_score = dampened_watchers / math.log(corpus_max_watchers + 1) if corpus_max_watchers > 0 else 0.0
-            watchers_score = min(watchers_score, 1.0)
-        else:
-            watchers_score = _log_normalise(watchers, corpus_max_watchers)
+        dampened_watchers = math.log(watchers + 1) / denom
+        watchers_score = dampened_watchers / math.log(corpus_max_watchers + 1) if corpus_max_watchers > 0 else 0.0
+        watchers_score = min(watchers_score, 1.0)
     else:
         stars_score = _log_normalise(stars, corpus_max_stars)
         forks_score = _log_normalise(forks, corpus_max_forks)
