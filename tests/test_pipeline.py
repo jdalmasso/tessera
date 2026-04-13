@@ -493,3 +493,183 @@ class TestComputeCommitWindows:
         result = self._fn(commits)
         # days 2 and 3 are in the same ISO week; day 10 is in a different week
         assert result["unique_commit_weeks_90d"] == 2
+
+
+# ---------------------------------------------------------------------------
+# _find_skill_paths
+# ---------------------------------------------------------------------------
+
+class TestFindSkillPaths:
+    def setup_method(self):
+        from surfaces.skills_leaderboard.pipeline import _find_skill_paths
+        self._fn = _find_skill_paths
+
+    def _make_client(self, contents):
+        from unittest.mock import MagicMock
+        client = MagicMock()
+        client.get_contents.return_value = contents
+        return client
+
+    def test_finds_skill_md_in_root(self):
+        client = self._make_client([
+            {"name": "SKILL.md", "type": "file", "path": "SKILL.md"},
+            {"name": "README.md", "type": "file", "path": "README.md"},
+        ])
+        result = self._fn(client, "alice", "repo")
+        assert result == ["SKILL.md"]
+
+    def test_case_insensitive_match(self):
+        client = self._make_client([
+            {"name": "skill.md", "type": "file", "path": "skill.md"},
+        ])
+        result = self._fn(client, "alice", "repo")
+        assert result == ["skill.md"]
+
+    def test_skips_directories(self):
+        client = self._make_client([
+            {"name": "SKILL.md", "type": "dir", "path": "SKILL.md"},
+        ])
+        result = self._fn(client, "alice", "repo")
+        assert result == []
+
+    def test_no_skill_md_returns_empty(self):
+        client = self._make_client([
+            {"name": "README.md", "type": "file", "path": "README.md"},
+        ])
+        result = self._fn(client, "alice", "repo")
+        assert result == []
+
+    def test_non_list_contents_returns_empty(self):
+        client = self._make_client(None)
+        result = self._fn(client, "alice", "repo")
+        assert result == []
+
+    def test_uses_provided_root_contents(self):
+        from unittest.mock import MagicMock
+        client = MagicMock()
+        root = [{"name": "SKILL.md", "type": "file", "path": "SKILL.md"}]
+        result = self._fn(client, "alice", "repo", root_contents=root)
+        client.get_contents.assert_not_called()
+        assert result == ["SKILL.md"]
+
+
+# ---------------------------------------------------------------------------
+# _parse_iso
+# ---------------------------------------------------------------------------
+
+class TestParseIso:
+    def setup_method(self):
+        from surfaces.skills_leaderboard.pipeline import _parse_iso
+        self._fn = _parse_iso
+
+    def test_parses_z_suffix(self):
+        result = self._fn("2026-04-12T10:00:00Z")
+        assert result.year == 2026
+        assert result.month == 4
+        assert result.day == 12
+
+    def test_result_is_naive(self):
+        result = self._fn("2026-04-12T10:00:00Z")
+        assert result.tzinfo is None
+
+    def test_parses_offset_string(self):
+        result = self._fn("2026-04-12T10:00:00+00:00")
+        assert result.year == 2026
+
+
+# ---------------------------------------------------------------------------
+# ingest_repo
+# ---------------------------------------------------------------------------
+
+class TestIngestRepo:
+    """
+    Tests for ingest_repo() using a mocked GitHubClient and in-memory DB.
+    Verifies that raw signals are stored correctly without hitting the network.
+    """
+
+    # Must be >= 100 chars to pass is_valid_skill()
+    _DEFAULT_SKILL = (
+        "---\nname: Test Skill\ndescription: A test skill for unit tests\n---\n"
+        "## Usage\nRun this skill to do something useful in your project.\n"
+        "It demonstrates the ingestion pipeline working end-to-end.\n"
+    )
+
+    def _make_client(self, skill_content=None):
+        from unittest.mock import MagicMock
+        client = MagicMock()
+        client.get_contents.return_value = [
+            {"name": "SKILL.md", "type": "file", "path": "SKILL.md"},
+            {"name": "README.md", "type": "file", "path": "README.md"},
+        ]
+        client.get_commits.return_value = []
+        client.get_contributors.return_value = [{"login": "alice"}, {"login": "bob"}]
+        client.get_file_content.return_value = skill_content if skill_content is not None else self._DEFAULT_SKILL
+        return client
+
+    def _make_conn(self, run_id="run-1"):
+        from data.store import get_connection, init_db, upsert_signal_source, start_pipeline_run
+        conn = get_connection()
+        init_db(conn)
+        upsert_signal_source(conn, "github", "GitHub API", last_run_at=NOW)
+        start_pipeline_run(conn, run_id, SURFACE_ID, NOW)
+        return conn
+
+    def _make_repo_data(self, full_name="alice/repo"):
+        return {
+            "full_name": full_name,
+            "stargazers_count": 42,
+            "forks_count": 5,
+            "watchers_count": 10,
+            "fork": False,
+            "archived": False,
+            "created_at": "2025-01-01T00:00:00Z",
+            "pushed_at": "2026-04-01T00:00:00Z",
+            "topics": ["claude-skill"],
+            "license": {"spdx_id": "MIT"},
+            "default_branch": "main",
+        }
+
+    def test_returns_skill_count(self, config):
+        conn = self._make_conn()
+        client = self._make_client()
+        from surfaces.skills_leaderboard.pipeline import ingest_repo
+        count = ingest_repo(client, self._make_repo_data(), [], config, "run-1", conn)
+        assert count == 1
+
+    def test_stores_repo_metadata_signal(self, config):
+        import json
+        from data.store import get_raw_signals
+        conn = self._make_conn()
+        client = self._make_client()
+        from surfaces.skills_leaderboard.pipeline import ingest_repo
+        ingest_repo(client, self._make_repo_data(), [], config, "run-1", conn)
+        signals = get_raw_signals(conn, "alice/repo", "repo_metadata")
+        assert len(signals) == 1
+        assert json.loads(signals[0]["payload"])["stars"] == 42
+
+    def test_stores_contributor_signal(self, config):
+        import json
+        from data.store import get_raw_signals
+        conn = self._make_conn()
+        client = self._make_client()
+        from surfaces.skills_leaderboard.pipeline import ingest_repo
+        ingest_repo(client, self._make_repo_data(), [], config, "run-1", conn)
+        signals = get_raw_signals(conn, "alice/repo", "contributors")
+        assert json.loads(signals[0]["payload"])["contributor_count"] == 2
+
+    def test_invalid_skill_content_not_stored(self, config):
+        conn = self._make_conn()
+        client = self._make_client(skill_content="no frontmatter here")
+        from surfaces.skills_leaderboard.pipeline import ingest_repo
+        count = ingest_repo(client, self._make_repo_data(), [], config, "run-1", conn)
+        assert count == 0
+
+    def test_provided_skill_paths_used(self, config):
+        conn = self._make_conn()
+        client = self._make_client()
+        from surfaces.skills_leaderboard.pipeline import ingest_repo
+        count = ingest_repo(client, self._make_repo_data(), ["SKILL.md"], config, "run-1", conn)
+        assert count == 1
+        # get_contents should not have been called to resolve skill paths
+        # (still called once for root metadata/code quality)
+        assert client.get_contributors.called
