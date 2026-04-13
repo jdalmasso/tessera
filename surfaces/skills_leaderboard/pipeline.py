@@ -183,40 +183,11 @@ def ingest_repo(
         config.get("discovery", {}).get("filters", {}).get("min_skill_md_chars", 100)
     )
 
-    # --- Repo metadata signal ---
-    store_raw_signal(
-        conn, SOURCE_ID, "repo_metadata", full_name,
-        {
-            "stars": repo_data.get("stargazers_count", 0),
-            "forks": repo_data.get("forks_count", 0),
-            "watchers": repo_data.get("watchers_count", 0),
-            "is_fork": repo_data.get("fork", False),
-            "is_archived": repo_data.get("archived", False),
-            "created_at": repo_data.get("created_at", ""),
-            "pushed_at": repo_data.get("pushed_at", ""),
-            "topics": repo_data.get("topics", []),
-            "has_license": repo_data.get("license") is not None,
-            "license_name": (repo_data.get("license") or {}).get("spdx_id"),
-            "default_branch": repo_data.get("default_branch", "main"),
-        },
-        now, run_id,
-    )
-
     # --- Root contents (structural checks + path resolution) ---
     root = client.get_contents(owner, repo_name, "")
     root_names: set[str] = set()
     if isinstance(root, list):
         root_names = {e.get("name", "").lower() for e in root}
-
-    store_raw_signal(
-        conn, SOURCE_ID, "code_quality", full_name,
-        {
-            "has_gitignore": ".gitignore" in root_names,
-            "has_github_dir": ".github" in root_names,
-            "has_tests": "tests" in root_names or "test" in root_names,
-        },
-        now, run_id,
-    )
 
     # Resolve skill paths for repos found via topic search (no paths yet)
     if not skill_paths:
@@ -271,9 +242,39 @@ def ingest_repo(
     # --- Contributor signal ---
     contributors = client.get_contributors(owner, repo_name)
 
-    # Batch all remaining writes for this repo into a single transaction so
-    # all inserts land in one fsync rather than one per store_raw_signal call.
+    # Batch ALL writes for this repo into a single transaction so all inserts
+    # land in one fsync rather than one per store_raw_signal call.  This
+    # includes repo_metadata and code_quality which were previously written
+    # before the transaction block.
     with conn:
+        store_raw_signal(
+            conn, SOURCE_ID, "repo_metadata", full_name,
+            {
+                "stars": repo_data.get("stargazers_count", 0),
+                "forks": repo_data.get("forks_count", 0),
+                "watchers": repo_data.get("watchers_count", 0),
+                "is_fork": repo_data.get("fork", False),
+                "is_archived": repo_data.get("archived", False),
+                "created_at": repo_data.get("created_at", ""),
+                "pushed_at": repo_data.get("pushed_at", ""),
+                "topics": repo_data.get("topics", []),
+                "has_license": repo_data.get("license") is not None,
+                "license_name": (repo_data.get("license") or {}).get("spdx_id"),
+                "default_branch": repo_data.get("default_branch", "main"),
+            },
+            now, run_id,
+        )
+
+        store_raw_signal(
+            conn, SOURCE_ID, "code_quality", full_name,
+            {
+                "has_gitignore": ".gitignore" in root_names,
+                "has_github_dir": ".github" in root_names,
+                "has_tests": "tests" in root_names or "test" in root_names,
+            },
+            now, run_id,
+        )
+
         store_raw_signal(
             conn, SOURCE_ID, "commits", full_name,
             _compute_commit_windows(commits),
