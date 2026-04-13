@@ -65,6 +65,44 @@ def count_lines(content: str) -> int:
     return sum(1 for line in content.splitlines() if line.strip())
 
 
+def is_non_latin_char(c: str) -> bool:
+    """
+    Return True if *c* belongs to a non-Latin script.
+
+    Covers the most common non-Latin writing systems: CJK (Chinese/Japanese),
+    Hangul (Korean), Arabic, Cyrillic (Russian), Hebrew, Thai, and Devanagari
+    (Hindi). Latin-script languages (Spanish, French, Portuguese, German, etc.)
+    are not affected — their occasional accented characters (é, ñ, ü) are
+    nowhere near these Unicode ranges.
+    """
+    cp = ord(c)
+    return (
+        0x4E00 <= cp <= 0x9FFF or  # CJK Unified Ideographs (Chinese)
+        0x3040 <= cp <= 0x30FF or  # Hiragana + Katakana (Japanese)
+        0xAC00 <= cp <= 0xD7AF or  # Hangul (Korean)
+        0x0600 <= cp <= 0x06FF or  # Arabic
+        0x0400 <= cp <= 0x04FF or  # Cyrillic (Russian, Ukrainian, etc.)
+        0x0590 <= cp <= 0x05FF or  # Hebrew
+        0x0E00 <= cp <= 0x0E7F or  # Thai
+        0x0900 <= cp <= 0x097F     # Devanagari (Hindi, Nepali)
+    )
+
+
+def is_latin_script(text: str, threshold: float = 0.20) -> bool:
+    """
+    Return True if the fraction of non-Latin-script characters in *text*
+    is at or below *threshold* (default 20%).
+
+    An empty string is considered Latin-script (returns True).
+    Designed to be applied to skill name + description to detect skills
+    written primarily in a non-Latin writing system.
+    """
+    if not text:
+        return True
+    non_latin = sum(1 for c in text if is_non_latin_char(c))
+    return (non_latin / len(text)) <= threshold
+
+
 def is_valid_skill(
     frontmatter: dict[str, Any],
     content: str,
