@@ -113,9 +113,9 @@ def score_adoption(
     Ecosystem adoption signal: log-normalised stars, forks, and watchers
     weighted and averaged.
 
-    Monorepo dampening: for skills in collections (skill_count > 1), the
-    effective stars used for normalisation are dampened by
-    log(stars + 1) / log(skill_count + 1), reducing the adoption score
+    Monorepo dampening: for skills in collections (skill_count > 1), stars,
+    forks, and watchers are each dampened by log(value + 1) /
+    log(skill_count + 1) before normalisation, reducing the adoption score
     proportionally to collection size.
 
     Weights: stars 0.5, forks 0.3, watchers 0.2 (from config).
@@ -123,17 +123,34 @@ def score_adoption(
     cfg = (config or {}).get("adoption", {})
     weights = cfg.get("weights", {"stars": 0.5, "forks": 0.3, "watchers": 0.2})
 
-    # Apply monorepo dampening to stars
-    if skill_count > 1 and stars > 0:
-        dampened_stars = math.log(stars + 1) / math.log(skill_count + 1)
-        # Re-normalise against the same corpus max using the dampened value
-        stars_score = dampened_stars / math.log(corpus_max_stars + 1) if corpus_max_stars > 0 else 0.0
-        stars_score = min(stars_score, 1.0)
+    # Apply monorepo dampening to stars, forks, and watchers
+    if skill_count > 1:
+        denom = math.log(skill_count + 1)
+
+        if stars > 0:
+            dampened_stars = math.log(stars + 1) / denom
+            stars_score = dampened_stars / math.log(corpus_max_stars + 1) if corpus_max_stars > 0 else 0.0
+            stars_score = min(stars_score, 1.0)
+        else:
+            stars_score = _log_normalise(stars, corpus_max_stars)
+
+        if forks > 0:
+            dampened_forks = math.log(forks + 1) / denom
+            forks_score = dampened_forks / math.log(corpus_max_forks + 1) if corpus_max_forks > 0 else 0.0
+            forks_score = min(forks_score, 1.0)
+        else:
+            forks_score = _log_normalise(forks, corpus_max_forks)
+
+        if watchers > 0:
+            dampened_watchers = math.log(watchers + 1) / denom
+            watchers_score = dampened_watchers / math.log(corpus_max_watchers + 1) if corpus_max_watchers > 0 else 0.0
+            watchers_score = min(watchers_score, 1.0)
+        else:
+            watchers_score = _log_normalise(watchers, corpus_max_watchers)
     else:
         stars_score = _log_normalise(stars, corpus_max_stars)
-
-    forks_score = _log_normalise(forks, corpus_max_forks)
-    watchers_score = _log_normalise(watchers, corpus_max_watchers)
+        forks_score = _log_normalise(forks, corpus_max_forks)
+        watchers_score = _log_normalise(watchers, corpus_max_watchers)
 
     return (
         weights["stars"] * stars_score
