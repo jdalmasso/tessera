@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 import yaml
 
-from data.models import RUN_STATUS_COMPLETED, RUN_STATUS_FAILED
+from data.models import RUN_STATUS_FAILED
 from data.store import (
     complete_pipeline_run,
     get_connection,
@@ -30,7 +30,7 @@ from data.store import (
     upsert_signal_source,
 )
 from signals.github.client import GitHubClient
-from signals.github.discovery import DiscoveredRepo, discover, make_entity_id
+from signals.github.discovery import discover, make_entity_id
 from signals.github.scoring import (
     compute_composite,
     score_adoption,

@@ -8,7 +8,6 @@ entity has all 9 expected score records (6 dimensions + 3 composites).
 No GitHub API calls are made — the scoring pass reads only from the DB.
 """
 
-import json
 import pytest
 
 from data.store import (

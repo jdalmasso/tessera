@@ -6,7 +6,7 @@ content. Skill-specific logic lives in surfaces/skills_leaderboard/.
 """
 
 import re
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
