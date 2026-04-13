@@ -30,7 +30,7 @@ A discovered repo is included only if **all** of the following are true:
 
 - SKILL.md contains valid YAML frontmatter
 - Frontmatter has at least one of `name` or `description`
-- SKILL.md is ≥ 100 characters
+- SKILL.md is ≥ 100 bytes (measured in raw bytes, not characters)
 - Repo is not archived
 - Repo is not a fork (all forks excluded in v0.1)
 
@@ -47,6 +47,10 @@ dampened_stars = log(stars) / log(skill_count + 1)
 Skill-level signals (SKILL.md content, commits to that path) remain per-skill and are not dampened.
 
 Monorepos with ≥ 10 skills are flagged as **collections** and appear in the Top Collections section of the leaderboard.
+
+## Rate Limiting
+
+The pipeline uses exponential backoff with up to 3 retries per request and a 30-second timeout per request. GitHub's REST API allows 5,000 requests per hour for authenticated requests. The pipeline logs progress every 100 repos. A full run over 2,000 repos typically uses approximately 400–600 API calls.
 
 ## Configuration
 
