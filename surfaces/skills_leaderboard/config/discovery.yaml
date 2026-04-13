@@ -1,6 +1,6 @@
 # Discovery configuration: search queries, caps, and filtering rules.
 
-max_repos: 2000  # stop discovery once this many unique repos are found
+max_repos: 6000  # stop discovery once this many unique repos are found (~6k is the GitHub Search API ceiling)
 
 # Phase 1: Repository searches sorted by stars.
 # Runs first to capture popular repos early.
