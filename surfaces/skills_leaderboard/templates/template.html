@@ -1,1 +1,229 @@
-<!-- Jinja2 leaderboard template — implemented in Phase 4 -->
+{# ── Reusable skill card macro ── #}
+{% macro skill_card(skill) %}
+<article class="skill-card">
+  <div class="rank-col">
+    <div class="rank">{{ skill.rank }}</div>
+    {% if skill.delta > 0 %}
+    <span class="delta up">▲{{ skill.delta }}</span>
+    {% elif skill.delta < 0 %}
+    <span class="delta down">▼{{ skill.delta | abs }}</span>
+    {% elif skill.is_new %}
+    <span class="delta new">NEW</span>
+    {% else %}
+    <span class="delta same">—</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <div class="card-top">
+      <span class="skill-name">
+        <a href="https://github.com/{{ skill.repo }}" target="_blank" rel="noopener">{{ skill.name }}</a>
+      </span>
+      <span class="skill-author">by <a href="https://github.com/{{ skill.author }}" target="_blank" rel="noopener">{{ skill.author }}</a></span>
+      <span class="tag">{{ skill.category_name }}</span>
+    </div>
+    {% if skill.description %}
+    <p class="skill-description">{{ skill.description | truncate(160) }}</p>
+    {% endif %}
+    <div class="card-meta">
+      <span class="stars">{{ skill.stars | format_int }}</span>
+      <span>Updated {{ skill.last_updated }}</span>
+      <a href="https://github.com/{{ skill.repo }}" target="_blank" rel="noopener">{{ skill.repo }}</a>
+    </div>
+    <div class="score-bar">
+      <span class="score-pill score-composite">Trending <strong>{{ skill.composite_trending | round(1) }}</strong></span>
+      <span class="score-pill">Vel <strong>{{ (skill.velocity * 25) | round(1) }}/25</strong></span>
+      <span class="score-pill">Adop <strong>{{ (skill.adoption * 20) | round(1) }}/20</strong></span>
+      <span class="score-pill">Fresh <strong>{{ (skill.freshness * 20) | round(1) }}/20</strong></span>
+      <span class="score-pill">Doc <strong>{{ (skill.documentation * 15) | round(1) }}/15</strong></span>
+      <span class="score-pill">Contrib <strong>{{ (skill.contributors * 10) | round(1) }}/10</strong></span>
+      <span class="score-pill">CQ <strong>{{ (skill.code_quality * 10) | round(1) }}/10</strong></span>
+    </div>
+  </div>
+</article>
+{% endmacro %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="{{ config.subtitle }}" />
+  <title>{{ config.title }}</title>
+  <style>{{ css }}</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ── Header ── -->
+  <header class="site-header">
+    <h1>{{ config.title }}</h1>
+    <p class="subtitle">{{ config.subtitle }}</p>
+    <div class="meta">
+      <span>Updated {{ last_updated }} {{ config.timezone_label }}</span>
+      <a href="{{ config.github_repo }}" target="_blank" rel="noopener">GitHub ↗</a>
+      <a href="{{ config.github_repo }}/blob/main/seed-run-report.md" target="_blank" rel="noopener">Calibration report ↗</a>
+    </div>
+  </header>
+
+  <!-- ── Methodology explainer ── -->
+  <section class="methodology" aria-label="Scoring methodology">
+    <h2>How skills are ranked</h2>
+    <ul>
+      <li><strong>Trending</strong> — weights commit velocity (25%) + freshness (20%) + adoption (20%) + documentation (15%) + contributors (10%) + code quality (10%)</li>
+      <li><strong>Popular</strong> — weights adoption (30%) + freshness (20%) + documentation (15%) + contributors (15%) + velocity (10%) + code quality (10%)</li>
+      <li><strong>Well-Rounded</strong> — weights documentation (25%) + code quality (25%) + freshness (15%) + adoption (15%) + velocity (10%) + contributors (10%)</li>
+    </ul>
+  </section>
+
+  <!-- ── Table of contents ── -->
+  <nav class="toc" aria-label="Page sections">
+    <h2>Sections</h2>
+    <ol>
+      <li><a href="#trending">Top 10 — Trending</a></li>
+      {% for cat in categories %}
+      <li><a href="#cat-{{ cat.id }}">{{ cat.name }}</a></li>
+      {% endfor %}
+      {% if collections %}
+      <li><a href="#collections">Top Collections</a></li>
+      {% endif %}
+      <li><a href="#stats">Corpus Stats</a></li>
+    </ol>
+  </nav>
+
+  <!-- ── Main leaderboard — Trending top N ── -->
+  <section class="section" id="trending">
+    <div class="section-header">
+      <h2>Top {{ main_skills | length }} — Trending</h2>
+      <span class="count">{{ stats.total_skills }} skills indexed</span>
+    </div>
+    {% for skill in main_skills %}
+    {{ skill_card(skill) }}
+    {% endfor %}
+    {% if not main_skills %}
+    <p class="empty">No skills found.</p>
+    {% endif %}
+  </section>
+
+  <!-- ── Per-category sections ── -->
+  {% for cat in categories %}
+  <section class="section" id="cat-{{ cat.id }}">
+    <div class="section-header">
+      <h2>{{ cat.name }}</h2>
+      <span class="count">{{ cat.skills | length }} skill{% if cat.skills | length != 1 %}s{% endif %} indexed</span>
+    </div>
+    {% if cat.top_skills %}
+    {% for skill in cat.top_skills %}
+    {{ skill_card(skill) }}
+    {% endfor %}
+    {% else %}
+    <p class="empty">No skills in this category yet.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <!-- ── Top Collections ── -->
+  {% if collections %}
+  <section class="section" id="collections">
+    <div class="section-header">
+      <h2>Top Collections</h2>
+      <span class="count">Monorepos with multiple skills</span>
+    </div>
+    {% for col in collections %}
+    <div class="collection-card">
+      <div class="collection-name">
+        <a href="https://github.com/{{ col.repo }}" target="_blank" rel="noopener">{{ col.repo }}</a>
+      </div>
+      <div class="collection-meta">
+        {{ col.skill_count }} skills · avg Trending {{ col.avg_trending | round(1) }}
+      </div>
+      {% if col.top_skills %}
+      <ul class="collection-skills">
+        {% for s in col.top_skills %}
+        <li><a href="https://github.com/{{ col.repo }}" target="_blank" rel="noopener">{{ s.name }}</a> — {{ s.composite_trending | round(1) }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <!-- ── Stats block (#18) ── -->
+  <section class="stats-block" id="stats" aria-label="Corpus statistics">
+    <h2>Corpus Stats</h2>
+    <div class="stats-grid">
+      <div class="stat-item">
+        <div class="stat-value">{{ stats.total_skills | format_int }}</div>
+        <div class="stat-label">Skills indexed</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">{{ stats.repos_discovered | format_int }}</div>
+        <div class="stat-label">Repos crawled</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">{{ stats.category_count }}</div>
+        <div class="stat-label">Categories</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value">{{ last_updated }}</div>
+        <div class="stat-label">Last updated ({{ config.timezone_label }})</div>
+      </div>
+    </div>
+
+    <table class="stats-table" aria-label="Score distributions">
+      <thead>
+        <tr>
+          <th>Methodology</th>
+          <th>Median</th>
+          <th>P25</th>
+          <th>P75</th>
+          <th>Max</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in stats.score_distributions %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td>{{ row.median | round(1) }}</td>
+          <td>{{ row.p25 | round(1) }}</td>
+          <td>{{ row.p75 | round(1) }}</td>
+          <td>{{ row.max | round(1) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <table class="stats-table" aria-label="Category distribution">
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Skills</th>
+          <th>%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in stats.category_distribution %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{{ row.count }}</td>
+          <td>{{ row.pct | round(1) }}%{% if row.id == 'other' and row.pct > 20 %} ⚠️{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p class="stats-note">
+      Scores are computed by the Tessera pipeline from GitHub API signals.
+      <a href="{{ config.github_repo }}/blob/main/seed-run-report.md" target="_blank" rel="noopener">Full calibration report ↗</a>
+    </p>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer class="site-footer">
+    <span>Built with <a href="{{ config.github_repo }}" target="_blank" rel="noopener">Tessera</a> · Open-source VC intelligence</span>
+    <span>Updated {{ last_updated }} {{ config.timezone_label }}</span>
+  </footer>
+
+</div>
+</body>
+</html>
