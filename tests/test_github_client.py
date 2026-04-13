@@ -317,3 +317,68 @@ class TestSearchMethods:
         client = make_client()
         assert client.session.headers["Authorization"] == "Bearer test-token"
         assert "application/vnd.github" in client.session.headers["Accept"]
+
+
+# ---------------------------------------------------------------------------
+# get_contents
+# ---------------------------------------------------------------------------
+
+class TestGetContents:
+    def test_returns_list_for_directory(self):
+        client = make_client()
+        payload = [{"name": "SKILL.md", "type": "file", "path": "SKILL.md"}]
+        resp = make_response(200, payload)
+        with patch.object(client.session, "request", return_value=resp):
+            result = client.get_contents("owner", "repo", "")
+        assert result == payload
+
+    def test_returns_dict_for_file(self):
+        client = make_client()
+        payload = {"name": "SKILL.md", "encoding": "base64", "content": "dGVzdA==\n"}
+        resp = make_response(200, payload)
+        with patch.object(client.session, "request", return_value=resp):
+            result = client.get_contents("owner", "repo", "SKILL.md")
+        assert result == payload
+
+    def test_returns_none_on_404(self):
+        client = make_client()
+        resp = make_response(404)
+        with patch.object(client.session, "request", return_value=resp):
+            result = client.get_contents("owner", "repo", "missing.md")
+        assert result is None
+
+    def test_correct_url_constructed(self):
+        client = make_client()
+        with patch.object(client, "_request", return_value=None) as mock_req:
+            client.get_contents("alice", "myrepo", "subdir/SKILL.md")
+        url = mock_req.call_args[0][1]
+        assert "alice/myrepo/contents/subdir/SKILL.md" in url
+
+
+# ---------------------------------------------------------------------------
+# get_contributors
+# ---------------------------------------------------------------------------
+
+class TestGetContributors:
+    def test_returns_list(self):
+        client = make_client()
+        payload = [{"login": "alice"}, {"login": "bob"}]
+        with patch.object(client, "_paginate", return_value=payload):
+            result = client.get_contributors("owner", "repo")
+        assert result == payload
+
+    def test_empty_repo_returns_empty_list(self):
+        client = make_client()
+        with patch.object(client, "_paginate", return_value=[]):
+            result = client.get_contributors("owner", "repo")
+        assert result == []
+
+    def test_correct_url_and_params(self):
+        client = make_client()
+        with patch.object(client, "_paginate", return_value=[]) as mock_pag:
+            client.get_contributors("alice", "repo", per_page=50)
+        url = mock_pag.call_args[0][0]
+        params = mock_pag.call_args[0][1]
+        assert "alice/repo/contributors" in url
+        assert params["per_page"] == 50
+        assert params["anon"] == "false"
