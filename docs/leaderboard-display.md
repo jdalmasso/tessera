@@ -10,7 +10,8 @@ This document describes how the static leaderboard is structured, how entries ar
 4. **Main Leaderboard — Top 10** — ranked by Trending composite, display caps applied
 5. **Per-Category Sections — Top 10 each** — all 15 categories shown, uncapped
 6. **Top Collections** — monorepos with ≥ 10 skills, ranked by top-3 average Trending composite
-7. **Footer** — link to the Tessera GitHub repo
+7. **Stats** — score distributions and category breakdown table
+8. **Footer** — link to the Tessera GitHub repo
 
 ## Entry Format
 
@@ -54,13 +55,13 @@ If a skill drops off the leaderboard and returns later, it shows `NEW`.
 
 ## Build Process
 
-`build.py` generates `site/index.html` by:
+`build.py` generates `build/index.html` by:
 
 1. Querying SQLite for the latest Trending scores
 2. Finding the previous completed run to compute rank deltas
 3. Applying display caps and selecting the top 10 for the main leaderboard
 4. Querying the top 10 per category (uncapped, all 15 categories always shown)
 5. Querying collections (≥ 10 skills), computing top-3 average per collection
-6. Rendering the Jinja2 template and writing `site/index.html`
+6. Rendering the Jinja2 template and writing `build/index.html`
 
 See `config/site.yaml` for display cap values, top-N settings, and timezone configuration.

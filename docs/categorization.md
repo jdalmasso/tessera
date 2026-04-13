@@ -33,8 +33,53 @@ Each skill is assigned to exactly one category via a six-level cascade. Each lev
 5. **README keyword scan** — first 500 characters of README.md are scanned
 6. **Default to Other** — fallback when no earlier level produced a match
 
-When multiple categories match at the same cascade level, the category with the most keyword matches wins.
+When multiple categories match at the same cascade level, the category with the most keyword matches wins. When two categories tie on keyword count at the same cascade level, the one appearing earlier in `config/categories.yaml` wins.
 
-## Keyword Lists
+## Representative Keywords
 
-See `config/categories.yaml` for the full keyword lists per category.
+The following lists are illustrative rather than exhaustive. Each category matches against a broader set of terms defined in `config/categories.yaml`.
+
+### Backend
+`api`, `rest`, `graphql`, `fastapi`, `django`, `flask`, `database`, `postgresql`, `redis`, `grpc`, `cli`, `sdk`
+
+### Frontend & Design
+`react`, `vue`, `svelte`, `css`, `tailwind`, `ui`, `component`, `design-system`, `responsive`, `nextjs`
+
+### DevOps & Infra
+`docker`, `kubernetes`, `terraform`, `ci`, `github-actions`, `aws`, `gcp`, `azure`, `deployment`, `helm`
+
+### Security
+`owasp`, `vulnerability`, `audit`, `penetration`, `compliance`, `sast`, `authentication`, `encryption`
+
+### Testing & QA
+`pytest`, `jest`, `selenium`, `e2e`, `unit-test`, `coverage`, `debugging`, `qa`
+
+### Data & AI
+`ml`, `pytorch`, `tensorflow`, `pandas`, `etl`, `pipeline`, `analytics`, `llm`, `embedding`, `vector`
+
+### Research
+`literature`, `paper`, `academic`, `survey`, `analysis`, `fact-checking`, `citation`
+
+### Documentation
+`readme`, `changelog`, `docstring`, `api-docs`, `technical-writing`, `mkdocs`, `sphinx`
+
+### Productivity & Workflow
+`agile`, `jira`, `git`, `automation`, `workflow`, `project-management`, `notion`
+
+### Consulting & Strategy
+`market-research`, `competitive`, `due-diligence`, `framework`, `advisory`, `strategy`
+
+### Back-Office
+`hr`, `payroll`, `legal`, `compliance`, `finance`, `internal-comms`, `onboarding`
+
+### Marketing & Content
+`seo`, `copywriting`, `social-media`, `newsletter`, `content-strategy`, `blog`
+
+### Creative & Media
+`art`, `music`, `video`, `audio`, `generative`, `creative-writing`, `image`
+
+### Integrations
+`mcp`, `connector`, `webhook`, `api-integration`, `zapier`, `automation`, `third-party`
+
+### Other
+Fallback category. No keywords are matched; a skill lands here only when all earlier cascade levels produce no result.
