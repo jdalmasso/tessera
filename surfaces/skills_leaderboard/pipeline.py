@@ -408,7 +408,13 @@ def score_and_store_skills(conn: Any, run_id: str, config: dict) -> int:
 
         # Temporal helpers
         repo_age_days         = _days_between(repo_meta.get("created_at", ""), now, default=0)
-        days_since_last_commit = _days_between(repo_meta.get("pushed_at", ""), now, default=365)
+        pushed_at_raw = repo_meta.get("pushed_at", "")
+        if not pushed_at_raw:
+            # pushed_at absent entirely → treat as fresh if repo is ≤ 30 days old,
+            # otherwise fall back to the pessimistic 365-day default.
+            days_since_last_commit = 0 if repo_age_days <= 30 else 365
+        else:
+            days_since_last_commit = _days_between(pushed_at_raw, now, default=365)
 
         # Monorepo dampening: count all skills in this repo for this run
         skill_count = conn.execute(
