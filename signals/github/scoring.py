@@ -269,6 +269,8 @@ def score_contributors(
       10 contributors→ log(11) / log(11) = 1.0
     """
     cap = config.get("contributors", {}).get("log_cap", 10)
+    if cap <= 0:
+        return 0.0
     capped = min(contributor_count, cap)
     return math.log(capped + 1) / math.log(cap + 1)
 

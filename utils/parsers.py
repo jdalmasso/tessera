@@ -84,22 +84,3 @@ def is_valid_skill(
     if len(content) < min_chars:
         return False
     return True
-
-
-def normalize_tags(value: Any) -> list[str]:
-    """
-    Coerce a frontmatter tags/category value into a list of lowercase strings.
-
-    Handles:
-      - None               → []
-      - "single string"    → ["single string"]
-      - ["a", "b"]         → ["a", "b"]
-      - ["A", " B "]       → ["a", "b"]  (lowercased and stripped)
-    """
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [value.strip().lower()] if value.strip() else []
-    if isinstance(value, list):
-        return [str(v).strip().lower() for v in value if str(v).strip()]
-    return []
