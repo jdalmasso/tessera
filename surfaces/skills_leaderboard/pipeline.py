@@ -297,6 +297,9 @@ def ingest_repo(
         # --- Skill file signals ---
         for skill in valid_skills:
             description = skill["description"]
+            # Normalise dir_names at lookup time to guarantee case-insensitive
+            # matching even if the set was populated without lowercasing.
+            dir_names_lc = {n.lower() for n in skill["dir_names"]}
             store_raw_signal(
                 conn, SOURCE_ID, "skill_file", skill["entity_ref"],
                 {
@@ -312,9 +315,9 @@ def ingest_repo(
                         skill["body"], "Usage", "How to Use", "How to use"
                     ),
                     "has_examples_section": has_section(skill["body"], "Examples", "Example"),
-                    "has_readme": "readme.md" in skill["dir_names"],
-                    "has_scripts_dir": "scripts" in skill["dir_names"],
-                    "has_references_dir": "references" in skill["dir_names"],
+                    "has_readme": "readme.md" in dir_names_lc,
+                    "has_scripts_dir": "scripts" in dir_names_lc,
+                    "has_references_dir": "references" in dir_names_lc,
                 },
                 now, run_id,
             )
