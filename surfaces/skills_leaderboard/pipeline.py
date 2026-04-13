@@ -67,6 +67,30 @@ def load_config() -> dict[str, Any]:
             raise FileNotFoundError(f"Config file not found: {path}") from None
         except yaml.YAMLError as exc:
             raise yaml.YAMLError(f"Malformed YAML in {path}: {exc}") from exc
+
+    # Validate required top-level keys so downstream bracket access fails
+    # with a descriptive error rather than a bare KeyError.
+    discovery = configs.get("discovery")
+    if not isinstance(discovery, dict):
+        raise ValueError("Config 'discovery.yaml' must be a mapping at the top level")
+    if "api" not in discovery:
+        raise ValueError("Config 'discovery.yaml' is missing required key: 'api'")
+
+    scoring = configs.get("scoring")
+    if not isinstance(scoring, dict):
+        raise ValueError("Config 'scoring.yaml' must be a mapping at the top level")
+    if "methodologies" not in scoring:
+        raise ValueError("Config 'scoring.yaml' is missing required key: 'methodologies'")
+    for method_name, method_cfg in scoring["methodologies"].items():
+        if not isinstance(method_cfg, dict) or "weights" not in method_cfg:
+            raise ValueError(
+                f"Config 'scoring.yaml': methodology {method_name!r} is missing required key: 'weights'"
+            )
+
+    categories = configs.get("categories")
+    if not isinstance(categories, dict):
+        raise ValueError("Config 'categories.yaml' must be a mapping at the top level")
+
     return configs
 
 
@@ -523,7 +547,7 @@ def score_and_store_skills(conn: Any, run_id: str, config: dict) -> int:
             store_score(conn, entity_ref, dim, round(value, 6), now, run_id)
 
         # --- Store composite scores ---
-        for methodology in config["scoring"]["methodologies"].keys():
+        for methodology in config["scoring"].get("methodologies", {}).keys():
             composite = compute_composite(
                 velocity=vel,
                 adoption=adop,
@@ -563,9 +587,10 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
         raise RuntimeError("GITHUB_TOKEN environment variable is not set")
 
     config = load_config()
-    cap = max_repos or config["discovery"].get("max_repos", 2000)
-    log_interval = config["discovery"]["api"].get("progress_log_interval", 100)
-    filters = config["discovery"].get("filters", {})
+    discovery_cfg = config["discovery"]
+    cap = max_repos or discovery_cfg.get("max_repos", 2000)
+    log_interval = discovery_cfg.get("api", {}).get("progress_log_interval", 100)
+    filters = discovery_cfg.get("filters", {})
 
     conn = get_connection(db_path or str(DB_PATH))
     try:
@@ -582,7 +607,7 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
         try:
             # --- Discovery ---
             logger.info("Starting discovery (cap=%d)...", cap)
-            discovered = discover(client, config["discovery"], max_repos=cap)
+            discovered = discover(client, discovery_cfg, max_repos=cap)
             logger.info("Discovered %d repos.", len(discovered))
 
             # --- Batch-then-filter ingestion ---

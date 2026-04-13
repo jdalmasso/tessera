@@ -321,7 +321,12 @@ def compute_composite(
             f"Expected one of {sorted(methodologies)}"
         )
 
-    weights = methodologies[methodology]["weights"]
+    method_cfg = methodologies[methodology]
+    if "weights" not in method_cfg:
+        raise ValueError(
+            f"Methodology {methodology!r} in config is missing required key: 'weights'"
+        )
+    weights = method_cfg["weights"]
 
     total = sum(weights.values())
     if abs(total - 100) > 0.01:
