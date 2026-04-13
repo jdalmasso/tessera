@@ -4,7 +4,7 @@ Tessera is an open-source VC intelligence platform. The Skills Leaderboard is it
 
 The pipeline runs daily, pulls signals from the GitHub API, stores them in SQLite, and generates a static site from Jinja2 templates.
 
-Live site: [https://github.com/tessera-vc/tessera](https://github.com/tessera-vc/tessera)
+Live site: [https://jdalmasso.github.io/tessera](https://jdalmasso.github.io/tessera)
 
 ---
 
@@ -95,7 +95,7 @@ Weights and category definitions are in `surfaces/skills_leaderboard/config/`. S
 **Requirements:** Python 3.12, a GitHub personal access token with `read:public_repo` scope.
 
 ```bash
-git clone https://github.com/tessera-vc/tessera.git
+git clone https://github.com/jdalmasso/tessera.git
 cd tessera
 
 python -m venv .venv
