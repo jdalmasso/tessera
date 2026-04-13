@@ -382,3 +382,27 @@ class TestGetContributors:
         assert "alice/repo/contributors" in url
         assert params["per_page"] == 50
         assert params["anon"] == "false"
+
+
+class TestContextManager:
+    """GitHubClient must support the context manager protocol."""
+
+    def test_enter_returns_client(self):
+        client = GitHubClient(token="fake")
+        assert client.__enter__() is client
+
+    def test_exit_closes_session(self):
+        client = GitHubClient(token="fake")
+        with patch.object(client.session, "close") as mock_close:
+            client.__exit__(None, None, None)
+        mock_close.assert_called_once()
+
+    def test_exit_closes_session_on_exception(self):
+        client = GitHubClient(token="fake")
+        with patch.object(client.session, "close") as mock_close:
+            try:
+                with client:
+                    raise ValueError("simulated error")
+            except ValueError:
+                pass
+        mock_close.assert_called_once()
