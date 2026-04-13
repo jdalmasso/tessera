@@ -59,8 +59,14 @@ SOURCE_ID = "github"
 def load_config() -> dict[str, Any]:
     configs: dict[str, Any] = {}
     for name in ("discovery", "scoring", "categories", "site"):
-        with open(CONFIG_DIR / f"{name}.yaml") as fh:
-            configs[name] = yaml.safe_load(fh)
+        path = CONFIG_DIR / f"{name}.yaml"
+        try:
+            with open(path) as fh:
+                configs[name] = yaml.safe_load(fh)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Config file not found: {path}") from None
+        except yaml.YAMLError as exc:
+            raise yaml.YAMLError(f"Malformed YAML in {path}: {exc}") from exc
     return configs
 
 
