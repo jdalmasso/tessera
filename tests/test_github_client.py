@@ -6,9 +6,8 @@ All network calls are intercepted via unittest.mock — no real HTTP traffic.
 
 import base64
 import time
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 import requests
 
 from signals.github.client import GitHubClient

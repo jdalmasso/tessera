@@ -8,16 +8,12 @@ Covers:
   - main(): writes file to disk, raises on missing run
 """
 
-import json
-import math
 import pytest
-from pathlib import Path
 
 from data.store import (
     get_connection,
     init_db,
     start_pipeline_run,
-    store_raw_signal,
     store_score,
     upsert_entity,
     upsert_signal_source,

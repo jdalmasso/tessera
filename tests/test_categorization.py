@@ -10,7 +10,6 @@ Covers:
   - Fallback to "other" when nothing matches
 """
 
-import pytest
 
 from surfaces.skills_leaderboard.categorization import categorize, _count_matches, _best_match
 

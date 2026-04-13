@@ -252,7 +252,6 @@ def test_live_discovery_returns_results():
     Smoke test: run a small live discovery query and verify we get at least
     one repo back with valid structure.
     """
-    import sqlite3
 
     from data.store import get_connection, init_db, store_raw_signal
 
