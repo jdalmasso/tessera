@@ -1,5 +1,5 @@
 """
-Single-query, date-range-sharded GitHub discovery of repositories containing
+Single-query, file-size-sharded GitHub discovery of repositories containing
 SKILL.md files at the canonical .claude/skills/ path.
 
 Generic — knows nothing about Skills. Returns DiscoveredRepo objects
@@ -7,15 +7,20 @@ that the pipeline then ingests and validates.
 
 Strategy
 --------
-GitHub code search hard-caps results at ~900 per query. To surface the full
-corpus we shard a single high-precision query by `pushed` date:
+GitHub code search hard-caps results at ~1000 per query. To surface the full
+corpus we shard a single high-precision query by file ``size`` (in bytes):
 
-    filename:SKILL.md path:.claude/skills pushed:>2025-06-01
-    filename:SKILL.md path:.claude/skills pushed:2025-01-01..2025-05-31
+    filename:SKILL.md path:.claude/skills size:<1000
+    filename:SKILL.md path:.claude/skills size:1000..5000
     ...
 
-Each shard gets its own ~900-result window. Discovery deduplicates
+Each shard gets its own ~1000-result window. Discovery deduplicates
 continuously by full_name and stops at max_repos.
+
+Note: ``pushed:`` is **not** a valid GitHub code search qualifier — it only
+works in repository search (/search/repositories). Using it in code search
+silently returns 0 results. Use ``size:`` ranges instead, which are explicitly
+supported in /search/code.
 """
 
 import logging
@@ -52,9 +57,10 @@ def discover(
     Run sharded discovery and return a deduplicated list of DiscoveredRepo.
 
     `config` is the parsed contents of config/discovery.yaml. The nested
-    `discovery` key holds the base query and pushed-date shards. Each shard
-    constructs ``{base_query} pushed:{range}`` and runs it as a code search,
-    contributing up to ~900 unique repos per shard.
+    `discovery` key holds the base query and shard qualifiers. Each shard
+    entry is a dict whose key-value pairs are appended as ``key:value`` to
+    the base query, e.g. ``{"size": "<1000"}`` → ``size:<1000``. This
+    contributes up to ~1000 unique repos per shard.
 
     Deduplication is in-memory across all shards. Stops when `max_repos`
     unique repos have been found.
@@ -77,8 +83,8 @@ def discover(
         if len(seen) >= max_repos:
             break
 
-        pushed     = shard.get("pushed", "")
-        full_query = f"{base_query} pushed:{pushed}" if pushed else base_query
+        shard_filters = " ".join(f"{k}:{v}" for k, v in shard.items())
+        full_query    = f"{base_query} {shard_filters}".strip() if shard_filters else base_query
         logger.info("Discovery shard: %r (%d unique repos so far)", full_query, len(seen))
 
         for item in client.search_code(full_query):
