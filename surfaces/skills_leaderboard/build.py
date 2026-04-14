@@ -14,10 +14,11 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import statistics
 from collections import defaultdict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -33,17 +34,19 @@ DB_PATH = Path(os.environ.get("TESSERA_DB_PATH", _PROJECT_ROOT / "db" / "tessera
 BUILD_DIR = _PROJECT_ROOT / "build"
 SURFACE_ID = "skills_leaderboard"
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _to_et(utc_str: str) -> str:
-    """Convert an ISO-8601 UTC string to a human-readable ET string."""
+def _to_utc(utc_str: str) -> str:
+    """Convert an ISO-8601 UTC string to a human-readable UTC string."""
     try:
         dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
-        et = dt.astimezone(timezone(timedelta(hours=-4)))   # EDT; -5 for EST
-        return et.strftime("%b %d, %Y %H:%M ET").replace(" 0", "  ")
+        utc = dt.astimezone(timezone.utc)
+        return utc.strftime("%Y-%m-%d %H:%M UTC")
     except (ValueError, AttributeError):
         return utc_str
 
@@ -149,7 +152,7 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
     min_coll_skills = site_cfg.get("collections", {}).get("min_skills", 2)
     top_n_coll_rank = max(1, site_cfg.get("collections", {}).get("top_n_for_ranking", 3))
 
-    last_updated = _to_et(run_meta.get("completed_at", ""))
+    last_updated = _to_utc(run_meta.get("completed_at", ""))
 
     # ── Rank deltas from previous run ──
     prev_ranks: dict[str, int] = {}
@@ -335,29 +338,31 @@ def main(
     Build the static site. Returns the path to the written index.html.
     """
     conn = get_connection(db_path or str(DB_PATH))
+    try:
+        if run_id is None:
+            run_row = get_latest_completed_run(conn, SURFACE_ID)
+            if run_row is None:
+                raise RuntimeError(
+                    "No completed pipeline run found. Run 'make pipeline' first."
+                )
+            run_id = run_row["id"]
 
-    if run_id is None:
-        run_row = get_latest_completed_run(conn, SURFACE_ID)
-        if run_row is None:
-            raise RuntimeError(
-                "No completed pipeline run found. Run 'make pipeline' first."
-            )
-        run_id = run_row["id"]
+        logger.info("Building site for run %s ...", run_id)
 
-    print(f"Building site for run {run_id} ...")
+        config = load_config()
+        data   = collect_run_data(conn, run_id)
+        ctx    = build_context(data, config, conn=conn)
+        html   = render(ctx)
 
-    config = load_config()
-    data   = collect_run_data(conn, run_id)
-    ctx    = build_context(data, config, conn=conn)
-    html   = render(ctx)
+        out_dir = output_dir or BUILD_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_file = out_dir / "index.html"
+        out_file.write_text(html, encoding="utf-8")
 
-    out_dir = output_dir or BUILD_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / "index.html"
-    out_file.write_text(html, encoding="utf-8")
-
-    print(f"Site written → {out_file}  ({len(html):,} bytes, {len(ctx['main_skills'])} main skills)")
-    return out_file
+        logger.info("Site written → %s  (%s bytes, %s main skills)", out_file, f"{len(html):,}", len(ctx['main_skills']))
+        return out_file
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

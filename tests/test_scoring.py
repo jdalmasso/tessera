@@ -167,6 +167,24 @@ class TestAdoption:
         multi  = score_adoption(1000, 0, 0, 1000, 1, 1, skill_count=10, config=config)
         assert multi < single
 
+    def test_monorepo_dampening_forks_reduced(self, config):
+        """Same forks but skill_count > 1 should yield a lower adoption score."""
+        single = score_adoption(0, 500, 0, 1, 500, 1, skill_count=1, config=config)
+        multi  = score_adoption(0, 500, 0, 1, 500, 1, skill_count=10, config=config)
+        assert multi < single
+
+    def test_monorepo_dampening_watchers_reduced(self, config):
+        """Same watchers but skill_count > 1 should yield a lower adoption score."""
+        single = score_adoption(0, 0, 200, 1, 1, 200, skill_count=1, config=config)
+        multi  = score_adoption(0, 0, 200, 1, 1, 200, skill_count=10, config=config)
+        assert multi < single
+
+    def test_monorepo_dampening_all_signals_reduced(self, config):
+        """All three signals dampened together yields a lower score than skill_count=1."""
+        single = score_adoption(1000, 500, 200, 1000, 500, 200, skill_count=1, config=config)
+        multi  = score_adoption(1000, 500, 200, 1000, 500, 200, skill_count=10, config=config)
+        assert multi < single
+
     def test_monorepo_dampening_single_skill_unchanged(self, config):
         """skill_count=1 means no dampening."""
         score_1  = score_adoption(100, 0, 0, 100, 1, 1, skill_count=1, config=config)
@@ -532,3 +550,18 @@ class TestCompositeScoring:
         with pytest.raises(ValueError, match="Unknown methodology"):
             compute_composite(**_ALL_ONES, methodology="nonexistent",
                               config=_COMPOSITE_CONFIG)
+
+    def test_weights_not_summing_to_100_raises(self):
+        """Weights that don't sum to 100 must raise ValueError."""
+        bad_config = {
+            "methodologies": {
+                "bad": {
+                    "weights": {
+                        "velocity": 20, "adoption": 20, "freshness": 20,
+                        "documentation": 10, "contributors": 10, "code_quality": 10,
+                    }
+                }
+            }
+        }
+        with pytest.raises(ValueError, match="must sum to 100"):
+            compute_composite(**_ALL_ONES, methodology="bad", config=bad_config)

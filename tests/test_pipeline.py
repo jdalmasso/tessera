@@ -35,11 +35,15 @@ NOW = "2026-04-12T10:00:00Z"
 CREATED_OLD = "2025-01-01T00:00:00Z"   # > 30 days ago → mature repo
 PUSHED_RECENT = "2026-04-01T00:00:00Z"  # 11 days ago → fresh
 
-EXPECTED_DIMENSIONS = {
-    "velocity", "adoption", "freshness", "documentation",
-    "contributors", "code_quality",
-    "composite:trending", "composite:popular", "composite:well_rounded",
-}
+def _expected_dimensions() -> set:
+    """Derive expected score dimensions from the real config (6 dims + N composites)."""
+    cfg = load_config()
+    base = {"velocity", "adoption", "freshness", "documentation", "contributors", "code_quality"}
+    composites = {f"composite:{m}" for m in cfg["scoring"]["methodologies"].keys()}
+    return base | composites
+
+
+EXPECTED_DIMENSIONS = _expected_dimensions()
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +432,42 @@ class TestGracefulDegradation:
         count = score_and_store_skills(db, run_id, config)
         assert count == 1
 
+    def test_malformed_json_payload_skips_skill(self, db, config):
+        """
+        A raw_signal row whose payload is not valid JSON causes
+        _get_latest_payload() to return None, which makes score_and_store_skills()
+        skip that skill entirely — no score rows should be written.
+
+        Regression test for issue #87.
+        """
+        run_id = "run-bad-json"
+        start_pipeline_run(db, run_id, SURFACE_ID, NOW)
+        full_name = "alice/badjson"
+        entity_ref = f"skill:{full_name}"
+
+        # Seed all repo-level signals normally so the skill would otherwise score.
+        _seed_repo(db, run_id, full_name)
+        _seed_skill(db, run_id, entity_ref)
+
+        # Corrupt the repo_metadata payload directly in the DB to simulate a
+        # malformed JSON row that bypassed validation at ingest time.
+        db.execute(
+            "UPDATE raw_signals SET payload = 'invalid json' "
+            "WHERE entity_ref = ? AND signal_type = 'repo_metadata' AND run_id = ?",
+            (full_name, run_id),
+        )
+        db.commit()
+
+        count = score_and_store_skills(db, run_id, config)
+
+        assert count == 0, "skill with malformed JSON payload must be skipped"
+
+        rows = db.execute(
+            "SELECT 1 FROM scores WHERE entity_id = ? AND run_id = ?",
+            (entity_ref, run_id),
+        ).fetchall()
+        assert rows == [], "no score rows should be written for a skipped skill"
+
 
 # ---------------------------------------------------------------------------
 # _compute_commit_windows
@@ -551,6 +591,148 @@ class TestFindSkillPaths:
         result = self._fn(client, "alice", "repo", root_contents=root)
         client.get_contents.assert_not_called()
         assert result == ["SKILL.md"]
+
+
+# ---------------------------------------------------------------------------
+# Freshness default — issue #46
+# ---------------------------------------------------------------------------
+
+class TestFreshnessDefault:
+    """
+    Verify that repos with no pushed_at do not get penalised with 365 days
+    when the repo is brand-new (≤ 30 days old).
+    """
+
+    def test_new_repo_no_pushed_at_gets_fresh_score(self, db, config):
+        """
+        A repo created 5 days ago with no pushed_at should be treated as fresh,
+        producing a higher freshness score than a year-old stale repo.
+        """
+        run_id = "run-freshness-new"
+        start_pipeline_run(db, run_id, SURFACE_ID, NOW)
+        full_name = "alice/newrepo"
+        entity_ref = f"skill:{full_name}"
+
+        # created_at is 5 days before NOW (2026-04-12)
+        created_at_recent = "2026-04-07T00:00:00Z"
+
+        # Seed repo_metadata WITHOUT pushed_at (empty string simulates missing field)
+        store_raw_signal(db, SOURCE_ID, "repo_metadata", full_name, {
+            "stars": 1, "forks": 0, "watchers": 1,
+            "is_fork": False, "is_archived": False,
+            "created_at": created_at_recent,
+            "pushed_at": "",   # absent / missing
+            "topics": [],
+            "has_license": False,
+            "default_branch": "main",
+        }, NOW, run_id)
+        store_raw_signal(db, SOURCE_ID, "code_quality", full_name, {
+            "has_gitignore": False, "has_github_dir": False, "has_tests": False,
+        }, NOW, run_id)
+        store_raw_signal(db, SOURCE_ID, "commits", full_name, {
+            "commit_count_30d": 0,
+            "commit_count_prev_30d": 0,
+            "commit_count_90d": 0,
+            "unique_commit_weeks_90d": 0,
+        }, NOW, run_id)
+        store_raw_signal(db, SOURCE_ID, "contributors", full_name, {
+            "contributor_count": 1,
+        }, NOW, run_id)
+        _seed_skill(db, run_id, entity_ref)
+
+        score_and_store_skills(db, run_id, config)
+
+        freshness_new = db.execute(
+            "SELECT value FROM scores WHERE entity_id = ? AND dimension = 'freshness' AND run_id = ?",
+            (entity_ref, run_id),
+        ).fetchone()
+        assert freshness_new is not None, "freshness score should be stored"
+
+        # Compare against an old stale repo scored with pushed_at set to 365 days ago.
+        run_id2 = "run-freshness-stale"
+        start_pipeline_run(db, run_id2, SURFACE_ID, NOW)
+        full_name2 = "alice/stalerepo"
+        entity_ref2 = f"skill:{full_name2}"
+        store_raw_signal(db, SOURCE_ID, "repo_metadata", full_name2, {
+            "stars": 1, "forks": 0, "watchers": 1,
+            "is_fork": False, "is_archived": False,
+            "created_at": CREATED_OLD,
+            "pushed_at": "2025-04-12T00:00:00Z",  # 365 days ago
+            "topics": [],
+            "has_license": False,
+            "default_branch": "main",
+        }, NOW, run_id2)
+        store_raw_signal(db, SOURCE_ID, "code_quality", full_name2, {
+            "has_gitignore": False, "has_github_dir": False, "has_tests": False,
+        }, NOW, run_id2)
+        store_raw_signal(db, SOURCE_ID, "commits", full_name2, {
+            "commit_count_30d": 0, "commit_count_prev_30d": 0,
+            "commit_count_90d": 0, "unique_commit_weeks_90d": 0,
+        }, NOW, run_id2)
+        store_raw_signal(db, SOURCE_ID, "contributors", full_name2, {
+            "contributor_count": 1,
+        }, NOW, run_id2)
+        _seed_skill(db, run_id2, entity_ref2)
+        score_and_store_skills(db, run_id2, config)
+
+        freshness_stale = db.execute(
+            "SELECT value FROM scores WHERE entity_id = ? AND dimension = 'freshness' AND run_id = ?",
+            (entity_ref2, run_id2),
+        ).fetchone()
+        assert freshness_stale is not None
+
+        assert freshness_new["value"] > freshness_stale["value"], (
+            f"New repo with no pushed_at (freshness={freshness_new['value']:.4f}) "
+            f"should score higher than a year-old stale repo "
+            f"(freshness={freshness_stale['value']:.4f})"
+        )
+
+    def test_old_repo_no_pushed_at_gets_pessimistic_default(self, db, config):
+        """
+        A repo created more than 30 days ago with no pushed_at should keep
+        the pessimistic 365-day default, resulting in a low freshness score.
+        """
+        run_id = "run-freshness-old-no-push"
+        start_pipeline_run(db, run_id, SURFACE_ID, NOW)
+        full_name = "alice/oldrepo"
+        entity_ref = f"skill:{full_name}"
+
+        # created_at is 90 days before NOW — clearly a mature repo
+        created_at_old = "2026-01-12T00:00:00Z"
+
+        store_raw_signal(db, SOURCE_ID, "repo_metadata", full_name, {
+            "stars": 1, "forks": 0, "watchers": 1,
+            "is_fork": False, "is_archived": False,
+            "created_at": created_at_old,
+            "pushed_at": "",   # absent / missing
+            "topics": [],
+            "has_license": False,
+            "default_branch": "main",
+        }, NOW, run_id)
+        store_raw_signal(db, SOURCE_ID, "code_quality", full_name, {
+            "has_gitignore": False, "has_github_dir": False, "has_tests": False,
+        }, NOW, run_id)
+        store_raw_signal(db, SOURCE_ID, "commits", full_name, {
+            "commit_count_30d": 0, "commit_count_prev_30d": 0,
+            "commit_count_90d": 0, "unique_commit_weeks_90d": 0,
+        }, NOW, run_id)
+        store_raw_signal(db, SOURCE_ID, "contributors", full_name, {
+            "contributor_count": 1,
+        }, NOW, run_id)
+        _seed_skill(db, run_id, entity_ref)
+
+        score_and_store_skills(db, run_id, config)
+
+        freshness_row = db.execute(
+            "SELECT value FROM scores WHERE entity_id = ? AND dimension = 'freshness' AND run_id = ?",
+            (entity_ref, run_id),
+        ).fetchone()
+        assert freshness_row is not None, "freshness score should be stored"
+        # A pessimistic default means the freshness score should be low (≤ 0.15)
+        assert freshness_row["value"] <= 0.15, (
+            f"Old repo with no pushed_at should get a low freshness score, "
+            f"got {freshness_row['value']:.4f}"
+        )
 
 
 # ---------------------------------------------------------------------------

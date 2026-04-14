@@ -25,11 +25,15 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      - name: Get date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
       - name: Restore DB cache
         uses: actions/cache@v4
         with:
           path: db/tessera.db
-          key: tessera-db-${{ github.run_id }}
+          key: tessera-db-${{ steps.date.outputs.date }}
           restore-keys: |
             tessera-db-
 

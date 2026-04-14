@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
+import sqlite3
 import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -31,6 +33,8 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 DB_PATH = Path(os.environ.get("TESSERA_DB_PATH", _PROJECT_ROOT / "db" / "tessera.db"))
 SURFACE_ID = "skills_leaderboard"
 REPORT_PATH = _PROJECT_ROOT / "seed-run-report.md"
+
+logger = logging.getLogger(__name__)
 
 # Dimension groups
 _DIM_SCORES = [d for d in DIMENSIONS if not d.startswith("composite:")]
@@ -170,7 +174,7 @@ def collect_run_data(conn: Any, run_id: str) -> dict:
                 pushed_at_map[ref] = payload.get("pushed_at", "")
             except (json.JSONDecodeError, TypeError):
                 pass
-    except Exception:
+    except sqlite3.OperationalError:
         pass  # raw_signals table may not exist in test fixtures
 
     for eid, meta in entity_meta.items():
@@ -405,24 +409,26 @@ def main(
     Returns the path of the written report.
     """
     conn = get_connection(db_path or str(DB_PATH))
+    try:
+        if run_id is None:
+            run_row = get_latest_completed_run(conn, SURFACE_ID)
+            if run_row is None:
+                raise RuntimeError(
+                    "No completed pipeline run found in the DB. "
+                    "Run 'make pipeline' first."
+                )
+            run_id = run_row["id"]
 
-    if run_id is None:
-        run_row = get_latest_completed_run(conn, SURFACE_ID)
-        if run_row is None:
-            raise RuntimeError(
-                "No completed pipeline run found in the DB. "
-                "Run 'make pipeline' first."
-            )
-        run_id = run_row["id"]
+        logger.info("Generating report for run %s ...", run_id)
+        data   = collect_run_data(conn, run_id)
+        report = generate_report(data)
 
-    print(f"Generating report for run {run_id} ...")
-    data   = collect_run_data(conn, run_id)
-    report = generate_report(data)
-
-    out = output_path or REPORT_PATH
-    out.write_text(report, encoding="utf-8")
-    print(f"Report written → {out}")
-    return out
+        out = output_path or REPORT_PATH
+        out.write_text(report, encoding="utf-8")
+        logger.info("Report written → %s", out)
+        return out
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

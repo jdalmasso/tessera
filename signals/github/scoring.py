@@ -113,9 +113,9 @@ def score_adoption(
     Ecosystem adoption signal: log-normalised stars, forks, and watchers
     weighted and averaged.
 
-    Monorepo dampening: for skills in collections (skill_count > 1), the
-    effective stars used for normalisation are dampened by
-    log(stars + 1) / log(skill_count + 1), reducing the adoption score
+    Monorepo dampening: for skills in collections (skill_count > 1), stars,
+    forks, and watchers are each dampened by log(value + 1) /
+    log(skill_count + 1) before normalisation, reducing the adoption score
     proportionally to collection size.
 
     Weights: stars 0.5, forks 0.3, watchers 0.2 (from config).
@@ -123,17 +123,25 @@ def score_adoption(
     cfg = (config or {}).get("adoption", {})
     weights = cfg.get("weights", {"stars": 0.5, "forks": 0.3, "watchers": 0.2})
 
-    # Apply monorepo dampening to stars
-    if skill_count > 1 and stars > 0:
-        dampened_stars = math.log(stars + 1) / math.log(skill_count + 1)
-        # Re-normalise against the same corpus max using the dampened value
+    # Apply monorepo dampening to stars, forks, and watchers
+    if skill_count > 1:
+        denom = math.log(skill_count + 1)
+
+        dampened_stars = math.log(stars + 1) / denom
         stars_score = dampened_stars / math.log(corpus_max_stars + 1) if corpus_max_stars > 0 else 0.0
         stars_score = min(stars_score, 1.0)
+
+        dampened_forks = math.log(forks + 1) / denom
+        forks_score = dampened_forks / math.log(corpus_max_forks + 1) if corpus_max_forks > 0 else 0.0
+        forks_score = min(forks_score, 1.0)
+
+        dampened_watchers = math.log(watchers + 1) / denom
+        watchers_score = dampened_watchers / math.log(corpus_max_watchers + 1) if corpus_max_watchers > 0 else 0.0
+        watchers_score = min(watchers_score, 1.0)
     else:
         stars_score = _log_normalise(stars, corpus_max_stars)
-
-    forks_score = _log_normalise(forks, corpus_max_forks)
-    watchers_score = _log_normalise(watchers, corpus_max_watchers)
+        forks_score = _log_normalise(forks, corpus_max_forks)
+        watchers_score = _log_normalise(watchers, corpus_max_watchers)
 
     return (
         weights["stars"] * stars_score
@@ -167,7 +175,7 @@ def score_freshness(
     Final score: weighted sum (decay 0.5, activity 0.4, maturity 0.1).
     """
     fcfg = config.get("freshness", {})
-    half_life = fcfg.get("half_life_days", 30)
+    half_life = max(1, fcfg.get("half_life_days", 30))
     act_mid = fcfg.get("activity_sigmoid_mid", 5)
     act_sat = fcfg.get("activity_sigmoid_sat", 20)
     maturity_days = fcfg.get("maturity_days", 30)
@@ -313,7 +321,19 @@ def compute_composite(
             f"Expected one of {sorted(methodologies)}"
         )
 
-    weights = methodologies[methodology]["weights"]
+    method_cfg = methodologies[methodology]
+    if "weights" not in method_cfg:
+        raise ValueError(
+            f"Methodology {methodology!r} in config is missing required key: 'weights'"
+        )
+    weights = method_cfg["weights"]
+
+    total = sum(weights.values())
+    if abs(total - 100) > 0.01:
+        raise ValueError(
+            f"Weights for methodology {methodology!r} must sum to 100, got {total}"
+        )
+
     scores = {
         "velocity": velocity,
         "adoption": adoption,
