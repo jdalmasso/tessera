@@ -220,6 +220,118 @@ class TestHelpers:
 
 
 # ---------------------------------------------------------------------------
+# Repo-search sources (discovery.repo_sources)
+# ---------------------------------------------------------------------------
+
+class TestRepoSources:
+
+    REPO_SOURCE_CONFIG = {
+        "discovery": {
+            "query": "filename:SKILL.md path:.claude/skills",
+            "shards": [{"size": "<1000"}],
+            "repo_sources": [
+                {
+                    "query": "topic:claude-skill",
+                    "shards": [
+                        {"pushed": ">2025-01-01"},
+                        {"pushed": "2024-01-01..2024-12-31"},
+                    ],
+                }
+            ],
+        },
+        "filters": {},
+    }
+
+    def repo_item(self, full_name: str) -> dict:
+        """Minimal repository search result item."""
+        return {"full_name": full_name, "name": full_name.split("/")[-1]}
+
+    def test_repo_sources_queried(self):
+        """search_repos is called once per shard when repo_sources is configured."""
+        client = MagicMock(spec=GitHubClient)
+        client.search_code.return_value = []
+        client.search_repos.return_value = []
+        discover(client, self.REPO_SOURCE_CONFIG)
+        assert client.search_repos.call_count == 2  # 2 shards in REPO_SOURCE_CONFIG
+
+    def test_repo_sources_query_constructed_correctly(self):
+        """Repo-search shard filters are appended correctly to the source query."""
+        client = MagicMock(spec=GitHubClient)
+        client.search_code.return_value = []
+        client.search_repos.return_value = []
+        discover(client, self.REPO_SOURCE_CONFIG)
+        calls = [c.args[0] for c in client.search_repos.call_args_list]
+        assert calls[0] == "topic:claude-skill pushed:>2025-01-01"
+        assert calls[1] == "topic:claude-skill pushed:2024-01-01..2024-12-31"
+
+    def test_repo_sources_repos_added(self):
+        """Repos found via repo search appear in the results."""
+        client = MagicMock(spec=GitHubClient)
+        client.search_code.return_value = []
+        client.search_repos.return_value = [self.repo_item("owner/from-repo-search")]
+        results = discover(client, self.REPO_SOURCE_CONFIG)
+        assert any(r.full_name == "owner/from-repo-search" for r in results)
+
+    def test_repo_sources_empty_skill_paths(self):
+        """Repos from repo search have skill_paths == [] and discovery_source == 'repo_search'."""
+        client = MagicMock(spec=GitHubClient)
+        client.search_code.return_value = []
+        client.search_repos.return_value = [self.repo_item("owner/repo-search-repo")]
+        results = discover(client, self.REPO_SOURCE_CONFIG)
+        match = next(r for r in results if r.full_name == "owner/repo-search-repo")
+        assert match.skill_paths == []
+        assert match.discovery_source == "repo_search"
+
+    def test_repo_sources_deduplicated_with_code_search(self):
+        """A repo found in both code search and repo search appears only once."""
+        client = MagicMock(spec=GitHubClient)
+        client.search_code.return_value = [code_item("owner/shared-repo", "SKILL.md")]
+        client.search_repos.return_value = [self.repo_item("owner/shared-repo")]
+        results = discover(client, self.REPO_SOURCE_CONFIG)
+        matches = [r for r in results if r.full_name == "owner/shared-repo"]
+        assert len(matches) == 1
+        # Code search result takes precedence (has skill_paths populated)
+        assert matches[0].skill_paths == ["SKILL.md"]
+        assert matches[0].discovery_source == "code_search"
+
+    def test_no_repo_sources_skips_search_repos(self):
+        """search_repos is never called when repo_sources is absent."""
+        client = MagicMock(spec=GitHubClient)
+        client.search_code.return_value = []
+        client.search_repos.return_value = []
+        discover(client, MINIMAL_CONFIG)  # MINIMAL_CONFIG has no repo_sources
+        client.search_repos.assert_not_called()
+
+    def test_repo_sources_respect_max_repos_cap(self):
+        """max_repos cap stops repo search from running once the cap is reached."""
+        client = MagicMock(spec=GitHubClient)
+        # Code search fills the cap exactly
+        client.search_code.return_value = [
+            code_item(f"owner/code-repo-{i}", "SKILL.md") for i in range(3)
+        ]
+        client.search_repos.return_value = [self.repo_item("owner/extra")]
+        results = discover(client, self.REPO_SOURCE_CONFIG, max_repos=3)
+        assert len(results) == 3
+        client.search_repos.assert_not_called()
+
+    def test_repo_source_missing_query_is_skipped(self):
+        """A repo_sources entry without a 'query' key is skipped with a warning."""
+        client = MagicMock(spec=GitHubClient)
+        client.search_code.return_value = []
+        client.search_repos.return_value = []
+        config = {
+            "discovery": {
+                "query": "filename:SKILL.md path:.claude/skills",
+                "shards": [],
+                "repo_sources": [{"shards": [{"pushed": ">2025-01-01"}]}],  # no query
+            }
+        }
+        results = discover(client, config)
+        assert results == []
+        client.search_repos.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Integration test — requires GITHUB_TOKEN
 # ---------------------------------------------------------------------------
 

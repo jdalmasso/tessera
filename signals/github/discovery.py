@@ -1,26 +1,32 @@
 """
-Single-query, file-size-sharded GitHub discovery of repositories containing
-SKILL.md files at the canonical .claude/skills/ path.
+Two-source GitHub discovery of repositories containing SKILL.md files at the
+canonical .claude/skills/ path.
 
 Generic — knows nothing about Skills. Returns DiscoveredRepo objects
 that the pipeline then ingests and validates.
 
 Strategy
 --------
-GitHub code search hard-caps results at ~1000 per query. To surface the full
-corpus we shard a single high-precision query by file ``size`` (in bytes):
+Source 1 — GitHub code search (file-level precision, size-sharded):
+    Hard-caps at ~1000 per query. Sharded by file ``size`` (in bytes):
 
-    filename:SKILL.md path:.claude/skills size:<1000
-    filename:SKILL.md path:.claude/skills size:1000..5000
-    ...
+        filename:SKILL.md path:.claude/skills size:<1000
+        filename:SKILL.md path:.claude/skills size:1000..5000
+        ...
 
-Each shard gets its own ~1000-result window. Discovery deduplicates
-continuously by full_name and stops at max_repos.
+    Each shard yields up to ~1000 unique repos.
 
-Note: ``pushed:`` is **not** a valid GitHub code search qualifier — it only
-works in repository search (/search/repositories). Using it in code search
-silently returns 0 results. Use ``size:`` ranges instead, which are explicitly
-supported in /search/code.
+Source 2 — GitHub repository search (broader, date-filtered supplemental):
+    Uses ``pushed:`` date-range sharding, which IS valid in repository search
+    (unlike code search where it silently returns 0 results). Queries repos
+    that self-identify via ``topic:claude-skill``.
+
+    Repos from this source have empty ``skill_paths``; the pipeline resolves
+    them later via the contents API.
+
+Note: ``pushed:`` is **not** a valid GitHub code search qualifier — using it
+in ``/search/code`` silently returns 0 results. It IS valid in
+``/search/repositories`` and is used exclusively there.
 """
 
 import logging
@@ -56,11 +62,15 @@ def discover(
     """
     Run sharded discovery and return a deduplicated list of DiscoveredRepo.
 
-    `config` is the parsed contents of config/discovery.yaml. The nested
-    `discovery` key holds the base query and shard qualifiers. Each shard
-    entry is a dict whose key-value pairs are appended as ``key:value`` to
-    the base query, e.g. ``{"size": "<1000"}`` → ``size:<1000``. This
-    contributes up to ~1000 unique repos per shard.
+    `config` is the parsed contents of config/discovery.yaml.
+
+    Source 1 (``discovery.query`` + ``discovery.shards``): code search with
+    generic key-value shard filters, e.g. ``{"size": "<1000"}`` → ``size:<1000``.
+
+    Source 2 (``discovery.repo_sources``): list of repo-search sources, each
+    with a ``query`` and optional ``shards``. Each source entry runs
+    ``client.search_repos()``; found repos get ``skill_paths=[]`` and
+    ``discovery_source="repo_search"``.
 
     Deduplication is in-memory across all shards. Stops when `max_repos`
     unique repos have been found.
@@ -109,6 +119,35 @@ def discover(
                 break
 
         logger.info("Shard complete: %d unique repos total", len(seen))
+
+    # --- Source 2: repository search (repo_sources) ---
+    for source in discovery_cfg.get("repo_sources", []):
+        if len(seen) >= max_repos:
+            break
+        source_query = source.get("query", "")
+        if not source_query:
+            logger.warning("repo_sources entry missing 'query'; skipping.")
+            continue
+        source_shards = source.get("shards", [{}])
+        for shard in source_shards:
+            if len(seen) >= max_repos:
+                break
+            shard_filters = " ".join(f"{k}:{v}" for k, v in shard.items())
+            full_query    = f"{source_query} {shard_filters}".strip() if shard_filters else source_query
+            logger.info("Repo-search shard: %r (%d unique repos so far)", full_query, len(seen))
+            for item in client.search_repos(full_query):
+                full_name = item.get("full_name", "")
+                if not full_name:
+                    continue
+                if full_name not in seen:
+                    seen[full_name] = DiscoveredRepo(
+                        full_name=full_name,
+                        skill_paths=[],
+                        discovery_source="repo_search",
+                    )
+                if len(seen) >= max_repos:
+                    break
+            logger.info("Repo-search shard complete: %d unique repos total", len(seen))
 
     return list(seen.values())
 
