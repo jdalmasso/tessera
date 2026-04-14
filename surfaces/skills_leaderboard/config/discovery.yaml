@@ -27,7 +27,7 @@ discovery:
   repo_sources:               # supplemental repo search — pushed: IS valid here
     - query: "topic:claude-skill"
       shards:
-        - pushed: ">2025-06-01"
+        - pushed: ">=2025-06-01"
         - pushed: "2025-01-01..2025-05-31"
         - pushed: "2024-01-01..2024-12-31"
         - pushed: "2023-01-01..2023-12-31"
