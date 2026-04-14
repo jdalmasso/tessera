@@ -27,8 +27,8 @@ MINIMAL_CONFIG = {
     "discovery": {
         "query": "filename:SKILL.md path:.claude/skills",
         "shards": [
-            {"pushed": ">2025-01-01"},
-            {"pushed": "2024-01-01..2024-12-31"},
+            {"size": "<1000"},
+            {"size": "1000..5000"},
         ],
     },
     "filters": {},
@@ -79,8 +79,8 @@ class TestDiscoverSharded:
         client = make_mock_client([])
         discover(client, MINIMAL_CONFIG)
         calls = [c.args[0] for c in client.search_code.call_args_list]
-        assert calls[0] == "filename:SKILL.md path:.claude/skills pushed:>2025-01-01"
-        assert calls[1] == "filename:SKILL.md path:.claude/skills pushed:2024-01-01..2024-12-31"
+        assert calls[0] == "filename:SKILL.md path:.claude/skills size:<1000"
+        assert calls[1] == "filename:SKILL.md path:.claude/skills size:1000..5000"
 
     def test_zero_result_shard_does_not_break(self):
         """A shard returning no results is silently skipped."""
@@ -104,7 +104,7 @@ class TestDiscoverSharded:
 
     def test_no_query_configured_returns_empty(self):
         client = make_mock_client([code_item("owner/repo", "SKILL.md")])
-        results = discover(client, {"discovery": {"query": "", "shards": [{"pushed": ">2025-01-01"}]}})
+        results = discover(client, {"discovery": {"query": "", "shards": [{"size": "<1000"}]}})
         assert results == []
         client.search_code.assert_not_called()
 
@@ -240,7 +240,7 @@ def test_live_discovery_returns_results():
     small_config = {
         "discovery": {
             "query": "filename:SKILL.md path:.claude/skills",
-            "shards": [{"pushed": ">2025-01-01"}],
+            "shards": [{"size": "<1000"}],
         },
     }
 

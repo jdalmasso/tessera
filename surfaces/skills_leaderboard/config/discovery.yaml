@@ -2,9 +2,15 @@
 
 max_repos: 6000  # safety ceiling; GitHub Search API yields ~900 results per shard
 
-# Single high-precision query sharded by pushed-date to bypass GitHub code
-# search's ~900-result-per-query ceiling. Each shard appends a pushed:RANGE
-# filter so every date window gets its own ~900-result window.
+# Single high-precision query sharded by file size to bypass GitHub code
+# search's ~1000-result-per-query ceiling. Each shard appends a size:RANGE
+# filter so every size bucket gets its own ~1000-result window.
+#
+# Why size: sharding?
+#   pushed: is NOT a valid GitHub code search qualifier — it only works in
+#   repository search (/search/repositories). Using it in /search/code
+#   silently returns 0 results. size: IS valid in code search and distributes
+#   the 70k+ corpus across 4 windows of up to ~1000 repos each.
 #
 # Why filename:SKILL.md path:.claude/skills?
 #   - Canonical Claude Code skill path — lowest false-positive rate
@@ -13,12 +19,11 @@ max_repos: 6000  # safety ceiling; GitHub Search API yields ~900 results per sha
 #
 discovery:
   query: "filename:SKILL.md path:.claude/skills"
-  shards:
-    - pushed: ">2025-06-01"
-    - pushed: "2025-01-01..2025-05-31"
-    - pushed: "2024-01-01..2024-12-31"
-    - pushed: "2023-01-01..2023-12-31"
-    - pushed: "<2023-01-01"
+  shards:                     # size: is valid in code search; pushed: is NOT
+    - size: "<1000"           # < 1 KB — minimal stubs / front-matter only
+    - size: "1000..5000"      # 1–5 KB — typical single-skill docs
+    - size: "5001..20000"     # 5–20 KB — comprehensive docs
+    - size: ">20000"          # > 20 KB — large / tutorial-style skills
 
 # Filtering: a repo/skill is included only if ALL conditions pass.
 filters:
