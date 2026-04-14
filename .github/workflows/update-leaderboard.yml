@@ -16,9 +16,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.12"
 
@@ -30,7 +30,7 @@ jobs:
         run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
       - name: Restore DB cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.5
         with:
           path: db/tessera.db
           key: tessera-db-${{ steps.date.outputs.date }}
@@ -70,11 +70,11 @@ jobs:
 
       - name: Deploy to GitHub Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5.0.0
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: pipeline-logs-${{ github.run_id }}
           path: "*.log"
