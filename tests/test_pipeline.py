@@ -961,3 +961,159 @@ class TestRecoveryPass:
 
         assert len(discovered) == 1
         assert discovered[0].full_name == "owner/mono"
+
+
+# ---------------------------------------------------------------------------
+# Content-hash deduplication (#106)
+# ---------------------------------------------------------------------------
+
+class TestContentHashDeduplication:
+    """
+    Tests for copy-paste duplicate detection via SKILL.md content hashes.
+    """
+
+    import json as _json
+
+    # Valid skill content (>= 100 chars, has frontmatter)
+    _SKILL_CONTENT = (
+        "---\nname: My Skill\ndescription: A useful skill for testing purposes\n---\n"
+        "## Usage\nRun this skill to do something useful. It works great every time.\n"
+    )
+
+    def _make_client(self, skill_content=None):
+        from unittest.mock import MagicMock
+        client = MagicMock()
+        client.get_contents.return_value = [
+            {"name": "SKILL.md", "type": "file", "path": "SKILL.md"},
+        ]
+        client.get_commits.return_value = []
+        client.get_contributors.return_value = [{"login": "alice"}]
+        client.get_file_content.return_value = (
+            skill_content if skill_content is not None else self._SKILL_CONTENT
+        )
+        return client
+
+    def _make_conn(self, run_id="run-1"):
+        from data.store import get_connection, init_db, upsert_signal_source, start_pipeline_run
+        conn = get_connection()
+        init_db(conn)
+        upsert_signal_source(conn, "github", "GitHub API", last_run_at=NOW)
+        start_pipeline_run(conn, run_id, SURFACE_ID, NOW)
+        return conn
+
+    def _make_repo_data(self, full_name):
+        return {
+            "full_name": full_name,
+            "stargazers_count": 5,
+            "forks_count": 0,
+            "watchers_count": 1,
+            "fork": False,
+            "archived": False,
+            "created_at": CREATED_OLD,
+            "pushed_at": PUSHED_RECENT,
+            "topics": [],
+            "license": None,
+            "default_branch": "main",
+        }
+
+    def test_content_hash_stored_in_skill_file_payload(self, config):
+        """content_hash is persisted in the skill_file signal payload."""
+        import json
+        import hashlib
+        from data.store import get_raw_signals
+        from surfaces.skills_leaderboard.pipeline import ingest_repo
+        conn = self._make_conn()
+        client = self._make_client()
+        ingest_repo(client, self._make_repo_data("alice/repo"), ["SKILL.md"], config, "run-1", conn)
+        signals = get_raw_signals(conn, "skill:alice/repo", "skill_file")
+        assert len(signals) == 1
+        payload = json.loads(signals[0]["payload"])
+        assert "content_hash" in payload
+        expected = hashlib.sha256(self._SKILL_CONTENT.encode()).hexdigest()[:16]
+        assert payload["content_hash"] == expected
+
+    def test_duplicate_content_skipped_in_scoring(self, config):
+        """
+        Two repos with identical SKILL.md content → only the first is scored.
+        """
+        from surfaces.skills_leaderboard.pipeline import ingest_repo, score_and_store_skills
+        conn = self._make_conn()
+        client = self._make_client()
+
+        # Ingest two repos with identical content
+        ingest_repo(client, self._make_repo_data("alice/repo-a"), ["SKILL.md"], config, "run-1", conn)
+        ingest_repo(client, self._make_repo_data("bob/repo-b"), ["SKILL.md"], config, "run-1", conn)
+
+        # Score: only one of the two should be scored
+        scored = score_and_store_skills(conn, "run-1", config)
+        assert scored == 1
+
+    def test_unique_content_both_scored(self, config):
+        """Two repos with distinct SKILL.md content are both scored."""
+        from surfaces.skills_leaderboard.pipeline import ingest_repo, score_and_store_skills
+        conn = self._make_conn()
+        client_a = self._make_client(self._SKILL_CONTENT)
+        client_b = self._make_client(
+            "---\nname: Other Skill\ndescription: A completely different skill for testing\n---\n"
+            "## Usage\nThis one does something entirely different from the first one above.\n"
+        )
+        ingest_repo(client_a, self._make_repo_data("alice/repo-a"), ["SKILL.md"], config, "run-1", conn)
+        ingest_repo(client_b, self._make_repo_data("bob/repo-b"), ["SKILL.md"], config, "run-1", conn)
+
+        scored = score_and_store_skills(conn, "run-1", config)
+        assert scored == 2
+
+    def test_missing_content_hash_not_deduplicated(self, config):
+        """
+        A skill_file payload without content_hash (legacy signals from before #106)
+        is not skipped — deduplication requires a hash to be present.
+        """
+        from data.store import store_raw_signal
+        from surfaces.skills_leaderboard.pipeline import score_and_store_skills
+        conn = self._make_conn()
+
+        # Manually seed two skill_file signals without content_hash
+        for full_name in ("alice/old", "bob/old"):
+            store_raw_signal(
+                conn, "github", "repo_metadata", full_name,
+                {
+                    "stars": 1, "forks": 0, "watchers": 0,
+                    "is_fork": False, "is_archived": False,
+                    "created_at": CREATED_OLD, "pushed_at": PUSHED_RECENT,
+                    "topics": [], "has_license": False, "default_branch": "main",
+                },
+                NOW, "run-1",
+            )
+            store_raw_signal(conn, "github", "commits", full_name,
+                             {"commit_count_30d": 1, "commit_count_prev_30d": 0,
+                              "commit_count_90d": 2, "unique_commit_weeks_90d": 1},
+                             NOW, "run-1")
+            store_raw_signal(conn, "github", "contributors", full_name,
+                             {"contributor_count": 1}, NOW, "run-1")
+            store_raw_signal(conn, "github", "code_quality", full_name,
+                             {"has_gitignore": False, "has_github_dir": False, "has_tests": False},
+                             NOW, "run-1")
+            entity_ref = f"skill:{full_name}"
+            store_raw_signal(
+                conn, "github", "skill_file", entity_ref,
+                {
+                    "skill_path": "SKILL.md",
+                    # no content_hash key — legacy payload
+                    "char_count": 150, "line_count": 8,
+                    "has_frontmatter": True,
+                    "frontmatter_name": "Old Skill",
+                    "frontmatter_description": "An old skill",
+                    "frontmatter_category": None,
+                    "frontmatter_tags": [],
+                    "has_usage_section": True,
+                    "has_examples_section": False,
+                    "has_readme": False,
+                    "has_scripts_dir": False,
+                    "has_references_dir": False,
+                },
+                NOW, "run-1",
+            )
+
+        # Both should score (no hash = no dedup)
+        scored = score_and_store_skills(conn, "run-1", config)
+        assert scored == 2

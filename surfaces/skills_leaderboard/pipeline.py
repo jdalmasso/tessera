@@ -9,6 +9,7 @@ Scoring and entity resolution are added in Phase 3.
 """
 
 import datetime
+import hashlib
 import json
 import logging
 import os
@@ -232,13 +233,14 @@ def ingest_repo(
             dir_names = {e.get("name", "").lower() for e in dir_contents}
 
         valid_skills.append({
-            "skill_path":  skill_path,
-            "content":     content,
-            "fm":          fm,
-            "body":        body,
-            "dir_names":   dir_names,
-            "entity_ref":  make_entity_id(full_name, skill_path),
-            "description": fm.get("description"),
+            "skill_path":   skill_path,
+            "content":      content,
+            "content_hash": hashlib.sha256(content.encode()).hexdigest()[:16],
+            "fm":           fm,
+            "body":         body,
+            "dir_names":    dir_names,
+            "entity_ref":   make_entity_id(full_name, skill_path),
+            "description":  fm.get("description"),
         })
 
     # No valid skills — skip commits and contributors entirely
@@ -307,6 +309,7 @@ def ingest_repo(
                 conn, SOURCE_ID, "skill_file", skill["entity_ref"],
                 {
                     "skill_path": skill["skill_path"],
+                    "content_hash": skill["content_hash"],
                     "char_count": len(skill["content"]),
                     "line_count": count_lines(skill["content"]),
                     "has_frontmatter": bool(skill["fm"]),
@@ -458,6 +461,7 @@ def score_and_store_skills(
     ).fetchall()
 
     scored = 0
+    seen_hashes: dict[str, str] = {}  # content_hash → first entity_ref that claimed it
 
     for skill_row in skill_rows:
         entity_ref: str = skill_row["entity_ref"]
@@ -466,6 +470,19 @@ def score_and_store_skills(
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning("Malformed skill_file payload for %s: %s", entity_ref, exc)
             continue
+
+        # Content-hash deduplication: skip copy-paste repos (same SKILL.md content
+        # as a different, already-scored entity in this run).
+        content_hash = skill_payload.get("content_hash")
+        if content_hash:
+            if content_hash in seen_hashes:
+                logger.debug(
+                    "Skipping %s — duplicate content (hash %s already seen for %s)",
+                    entity_ref, content_hash, seen_hashes[content_hash],
+                )
+                continue
+            seen_hashes[content_hash] = entity_ref
+
         repo_full_name = _repo_from_entity_ref(entity_ref)
 
         # Gather repo-level signals (all keyed by full_name in raw_signals)
