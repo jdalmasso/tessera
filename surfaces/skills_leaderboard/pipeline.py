@@ -22,6 +22,7 @@ from data.models import RUN_STATUS_FAILED
 from data.store import (
     complete_pipeline_run,
     get_connection,
+    get_entity,
     get_known_repo_names,
     init_db,
     start_pipeline_run,
@@ -42,6 +43,7 @@ from signals.github.scoring import (
     score_velocity,
 )
 from surfaces.skills_leaderboard.categorization import categorize
+from surfaces.skills_leaderboard.llm_categorize import LLMCategorizer
 from utils.parsers import count_lines, extract_frontmatter, has_section, is_latin_script, is_valid_skill
 
 logger = logging.getLogger(__name__)
@@ -420,6 +422,7 @@ def score_and_store_skills(
     run_id: str,
     config: dict,
     corpus_max: Optional[tuple[int, int, int]] = None,
+    llm_categorizer: Optional[Any] = None,
 ) -> int:
     """
     Second pass over every ``skill_file`` signal in *run_id*:
@@ -544,16 +547,30 @@ def score_and_store_skills(
         )
 
         # --- Categorise ---
-        category = categorize(
-            frontmatter_category=skill_payload.get("frontmatter_category"),
-            frontmatter_tags=skill_payload.get("frontmatter_tags") or [],
-            name=skill_payload.get("frontmatter_name") or "",
-            description=description_text,
-            repo_topics=repo_meta.get("topics") or [],
-            skill_path=skill_payload.get("skill_path", ""),
-            readme_excerpt="",  # not fetched in v0.1
-            config=config["categories"],
+        # Incremental skip: if the entity already has a non-"other" category
+        # from a previous run, reuse it so we don't burn LLM tokens on
+        # already-classified skills. Only newly ingested or still-"other"
+        # skills pass through the LLM.
+        existing_entity = get_entity(conn, entity_ref)
+        existing_category = (
+            existing_entity["category"]
+            if existing_entity and existing_entity["category"] != "other"
+            else None
         )
+        if existing_category:
+            category = existing_category
+        else:
+            category = categorize(
+                frontmatter_category=skill_payload.get("frontmatter_category"),
+                frontmatter_tags=skill_payload.get("frontmatter_tags") or [],
+                name=skill_payload.get("frontmatter_name") or "",
+                description=description_text,
+                repo_topics=repo_meta.get("topics") or [],
+                skill_path=skill_payload.get("skill_path", ""),
+                readme_excerpt="",  # not fetched in v0.1
+                config=config["categories"],
+                llm_categorizer=llm_categorizer,
+            )
 
         # --- Upsert entity ---
         upsert_entity(
@@ -720,9 +737,22 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
                 # future tooling can read it without a full table scan.
                 corpus_max = _compute_corpus_max(conn, run_id)
 
+                # --- Instantiate LLM categoriser (once per run) ---
+                _llm: Optional[LLMCategorizer] = None
+                if os.environ.get("ANTHROPIC_API_KEY"):
+                    try:
+                        _llm = LLMCategorizer(config["categories"])
+                        logger.info("LLM categoriser initialised (model=%s).", _llm._model)
+                    except Exception as exc:
+                        logger.warning(
+                            "LLM categoriser init failed: %s. Keyword cascade only.", exc
+                        )
+
                 # --- Scoring + entity resolution ---
                 logger.info("Scoring skills...")
-                scored = score_and_store_skills(conn, run_id, config, corpus_max=corpus_max)
+                scored = score_and_store_skills(
+                    conn, run_id, config, corpus_max=corpus_max, llm_categorizer=_llm
+                )
                 logger.info("Scored %d skills.", scored)
 
                 completed_at = _utcnow_str()
