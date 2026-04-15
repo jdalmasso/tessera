@@ -101,6 +101,26 @@ def get_entity(conn: sqlite3.Connection, entity_id: str) -> Optional[sqlite3.Row
     ).fetchone()
 
 
+def get_known_repo_names(conn: sqlite3.Connection) -> set[str]:
+    """
+    Return all distinct ``owner/repo`` strings from skill entities in the DB.
+
+    Entity IDs use the canonical format ``skill:owner/repo`` (root skill) or
+    ``skill:owner/repo:subdir/path`` (monorepo sub-skill).  Both forms reduce
+    to the same ``owner/repo`` string.
+
+    Returns an empty set on the first run when the DB has no skill entities.
+    """
+    rows = conn.execute(
+        "SELECT id FROM entities WHERE entity_type = 'skill'"
+    ).fetchall()
+    repos: set[str] = set()
+    for row in rows:
+        without_prefix = row["id"][len("skill:"):]  # strip "skill:"
+        repos.add(without_prefix.split(":")[0])     # take "owner/repo" only
+    return repos
+
+
 # ---------------------------------------------------------------------------
 # Raw signals
 # ---------------------------------------------------------------------------

@@ -46,7 +46,11 @@ class DiscoveredRepo:
     for repos where only the repo was returned without a path — the
     pipeline resolves paths later via the contents API.
 
-    `discovery_source` is always "code_search" in the sharded approach.
+    `discovery_source` records how the repo was found:
+    - ``"code_search"``  — GitHub ``/search/code`` (file-level, size-sharded)
+    - ``"repo_search"``  — GitHub ``/search/repositories`` (topic-based, date-sharded)
+    - ``"db_recovery"``  — repo was in the DB from a prior run but absent from today's
+      discovery sample; re-queued by the pipeline's retention pass.
     """
 
     full_name: str
