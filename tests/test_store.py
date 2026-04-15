@@ -9,6 +9,7 @@ from data.store import (
     complete_pipeline_run,
     get_connection,
     get_entity,
+    get_known_repo_names,
     get_latest_completed_run,
     get_latest_scores,
     get_previous_completed_run,
@@ -358,3 +359,65 @@ class TestPipelineRuns:
         assert get_latest_completed_run(conn, "surface_a")["id"] == "run-A"
         assert get_latest_completed_run(conn, "surface_b")["id"] == "run-B"
         assert get_latest_completed_run(conn, "surface_c") is None
+
+
+# ---------------------------------------------------------------------------
+# get_known_repo_names
+# ---------------------------------------------------------------------------
+
+def _add_skill(conn, entity_id, name="test-skill"):
+    """Helper: insert a skill entity with minimal required fields."""
+    upsert_entity(
+        conn,
+        entity_id=entity_id,
+        entity_type="skill",
+        name=name,
+        description=None,
+        metadata={},
+        category="other",
+        now="2026-04-14T00:00:00Z",
+    )
+
+
+class TestGetKnownRepoNames:
+
+    def test_empty_db_returns_empty_set(self, conn):
+        assert get_known_repo_names(conn) == set()
+
+    def test_single_root_skill(self, conn):
+        _add_skill(conn, "skill:owner/repo")
+        assert get_known_repo_names(conn) == {"owner/repo"}
+
+    def test_monorepo_multiple_entity_ids_deduplicated(self, conn):
+        """Three sub-skills for the same repo should collapse to one entry."""
+        _add_skill(conn, "skill:owner/monorepo:path/a", name="skill-a")
+        _add_skill(conn, "skill:owner/monorepo:path/b", name="skill-b")
+        _add_skill(conn, "skill:owner/monorepo:path/c", name="skill-c")
+        result = get_known_repo_names(conn)
+        assert result == {"owner/monorepo"}
+
+    def test_multiple_distinct_repos(self, conn):
+        _add_skill(conn, "skill:alice/foo")
+        _add_skill(conn, "skill:bob/bar")
+        _add_skill(conn, "skill:carol/baz")
+        assert get_known_repo_names(conn) == {"alice/foo", "bob/bar", "carol/baz"}
+
+    def test_non_skill_entity_type_excluded(self, conn):
+        """Entities that are not 'skill' type should not appear in results."""
+        upsert_entity(
+            conn,
+            entity_id="tool:owner/some-tool",
+            entity_type="tool",
+            name="some-tool",
+            description=None,
+            metadata={},
+            category="other",
+            now="2026-04-14T00:00:00Z",
+        )
+        assert get_known_repo_names(conn) == set()
+
+    def test_mixed_root_and_subpath_same_repo(self, conn):
+        """Root skill + sub-skill in same repo → single entry."""
+        _add_skill(conn, "skill:owner/repo", name="root")
+        _add_skill(conn, "skill:owner/repo:.claude/skills", name="sub")
+        assert get_known_repo_names(conn) == {"owner/repo"}

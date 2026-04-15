@@ -22,6 +22,7 @@ from data.models import RUN_STATUS_FAILED
 from data.store import (
     complete_pipeline_run,
     get_connection,
+    get_known_repo_names,
     init_db,
     start_pipeline_run,
     store_raw_signal,
@@ -30,7 +31,7 @@ from data.store import (
     upsert_signal_source,
 )
 from signals.github.client import GitHubClient
-from signals.github.discovery import discover, make_entity_id
+from signals.github.discovery import DiscoveredRepo, discover, make_entity_id
 from signals.github.scoring import (
     compute_composite,
     score_adoption,
@@ -647,9 +648,24 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
                 discovered = discover(client, discovery_cfg, max_repos=cap)
                 logger.info("Discovered %d repos.", len(discovered))
 
+                # --- DB retention: re-queue repos known to DB but absent from today's sample ---
+                known_repos      = get_known_repo_names(conn)
+                discovered_names = {dr.full_name for dr in discovered}
+                missing_names    = known_repos - discovered_names
+                recovery_count   = len(missing_names)
+                if missing_names:
+                    logger.info(
+                        "Recovery pass: %d known repos not in today's sample; re-queuing.",
+                        recovery_count,
+                    )
+                    for full_name in missing_names:
+                        discovered.append(DiscoveredRepo(full_name, [], "db_recovery"))
+                    logger.info("Total repos after recovery: %d", len(discovered))
+
                 # --- Batch-then-filter ingestion ---
                 valid_skills = 0
                 errors = 0
+                recovered_errors = 0
 
                 for i, dr in enumerate(discovered):
                     if i > 0 and i % log_interval == 0:
@@ -663,7 +679,14 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
                         # Fetch repo metadata first (batch step)
                         repo_data = client.get_repo(owner, repo_name)
                         if not repo_data:
-                            errors += 1
+                            if dr.discovery_source == "db_recovery":
+                                logger.info(
+                                    "Recovery: %s no longer accessible (deleted/private); skipping.",
+                                    dr.full_name,
+                                )
+                                recovered_errors += 1
+                            else:
+                                errors += 1
                             continue
 
                         # Filter invalid repos
@@ -710,6 +733,8 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
                         "valid_skills": valid_skills,
                         "scored_skills": scored,
                         "errors": errors,
+                        "recovery_count": recovery_count,
+                        "recovered_errors": recovered_errors,
                         "corpus_max_stars": corpus_max[0],
                         "corpus_max_forks": corpus_max[1],
                         "corpus_max_watchers": corpus_max[2],

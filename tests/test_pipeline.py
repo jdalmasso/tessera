@@ -12,11 +12,14 @@ import pytest
 
 from data.store import (
     get_connection,
+    get_known_repo_names,
     init_db,
     start_pipeline_run,
     store_raw_signal,
+    upsert_entity,
     upsert_signal_source,
 )
+from signals.github.discovery import DiscoveredRepo
 from surfaces.skills_leaderboard.pipeline import (
     load_config,
     score_and_store_skills,
@@ -868,3 +871,93 @@ class TestIngestRepo:
         # Commits and contributors fetched because skill is valid
         client.get_commits.assert_called_once()
         client.get_contributors.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Recovery pass logic
+# ---------------------------------------------------------------------------
+
+def _add_skill_entity(conn, full_name, subpath=None):
+    """Seed a minimal skill entity to simulate a previously-ingested repo."""
+    entity_id = f"skill:{full_name}" if subpath is None else f"skill:{full_name}:{subpath}"
+    upsert_entity(
+        conn,
+        entity_id=entity_id,
+        entity_type="skill",
+        name=full_name.split("/")[-1],
+        description=None,
+        metadata={},
+        category="other",
+        now="2026-04-13T00:00:00Z",
+    )
+    return entity_id
+
+
+class TestRecoveryPass:
+    """
+    Unit-tests for the DB retention logic: repos in the DB but absent from
+    today's discovery sample should be re-queued as db_recovery DiscoveredRepos.
+
+    We test the *logic* directly (get_known_repo_names + set arithmetic) rather
+    than calling run(), so no GitHub API is needed.
+    """
+
+    @pytest.fixture
+    def conn(self, tmp_path):
+        c = get_connection(str(tmp_path / "test.db"))
+        init_db(c)
+        upsert_signal_source(c, "github", "GitHub API")
+        return c
+
+    def test_known_repo_absent_from_discovered_is_requeued(self, conn):
+        """A repo in the DB but not in today's sample should be re-added."""
+        _add_skill_entity(conn, "owner/old-repo")
+
+        discovered = [DiscoveredRepo("owner/new-repo", ["SKILL.md"], "code_search")]
+        known = get_known_repo_names(conn)
+        missing = known - {dr.full_name for dr in discovered}
+
+        assert "owner/old-repo" in missing
+        for full_name in missing:
+            discovered.append(DiscoveredRepo(full_name, [], "db_recovery"))
+
+        recovery_entries = [dr for dr in discovered if dr.discovery_source == "db_recovery"]
+        assert len(recovery_entries) == 1
+        assert recovery_entries[0].full_name == "owner/old-repo"
+        assert recovery_entries[0].skill_paths == []
+
+    def test_known_repo_already_in_discovered_not_duplicated(self, conn):
+        """A repo that appears in both DB and today's sample is NOT duplicated."""
+        _add_skill_entity(conn, "owner/repo")
+
+        discovered = [DiscoveredRepo("owner/repo", ["SKILL.md"], "code_search")]
+        known = get_known_repo_names(conn)
+        missing = known - {dr.full_name for dr in discovered}
+
+        assert "owner/repo" not in missing
+        assert len(missing) == 0
+
+    def test_empty_db_no_recovery_repos_added(self, conn):
+        """On the very first run the DB has no skill entities — recovery set is empty."""
+        discovered = [DiscoveredRepo("owner/repo", ["SKILL.md"], "code_search")]
+        known = get_known_repo_names(conn)
+        missing = known - {dr.full_name for dr in discovered}
+
+        assert missing == set()
+
+    def test_monorepo_counts_as_single_recovery_entry(self, conn):
+        """Three sub-skill entities for the same repo yield one recovery DiscoveredRepo."""
+        _add_skill_entity(conn, "owner/mono", "path/a")
+        _add_skill_entity(conn, "owner/mono", "path/b")
+        _add_skill_entity(conn, "owner/mono", "path/c")
+
+        discovered: list[DiscoveredRepo] = []
+        known = get_known_repo_names(conn)
+        missing = known - {dr.full_name for dr in discovered}
+
+        assert missing == {"owner/mono"}
+        for full_name in missing:
+            discovered.append(DiscoveredRepo(full_name, [], "db_recovery"))
+
+        assert len(discovered) == 1
+        assert discovered[0].full_name == "owner/mono"
