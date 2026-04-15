@@ -1,16 +1,19 @@
 """
-Skill categorisation via a 6-level cascade.
+Skill categorisation via a cascade.
 
 Each skill is assigned to exactly one of the categories defined in
 config/categories.yaml.  The cascade is:
 
   1. Explicit frontmatter — `category` field or `tags` containing a known
      category id or name.
-  2. Keyword match on skill name + SKILL.md description.
-  3. Keyword match on GitHub repo topics.
-  4. Keyword match on directory path components (monorepo heuristic).
-  5. Keyword match on the first 500 characters of the README.
-  6. Default → "other".
+  2. LLM classifier (optional) — Claude Haiku reads name/description/topics/
+     path and returns one of the 14 non-"other" category ids. Skipped when
+     ``llm_categorizer`` is None (no API key, or already-classified skill).
+  3. Keyword match on skill name + SKILL.md description.
+  4. Keyword match on GitHub repo topics.
+  5. Keyword match on directory path components (monorepo heuristic).
+  6. Keyword match on the first 500 characters of the README.
+  7. Default → "other".
 
 At every keyword-match level the category with the most hits wins.
 Ties are broken by config order (first in categories.yaml).
@@ -18,7 +21,10 @@ Ties are broken by config order (first in categories.yaml).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from surfaces.skills_leaderboard.llm_categorize import LLMCategorizer
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +76,7 @@ def categorize(
     skill_path: str,
     readme_excerpt: str,
     config: dict[str, Any],
+    llm_categorizer: "LLMCategorizer | None" = None,
 ) -> str:
     """
     Assign exactly one category id to a skill.
@@ -94,6 +101,11 @@ def categorize(
     config:
         Parsed ``categories.yaml`` as a dict (must contain a ``categories``
         list of ``{id, name, keywords}`` objects).
+    llm_categorizer:
+        Optional :class:`LLMCategorizer` instance.  When provided, it is
+        called between level-1 (frontmatter) and level-3 (keyword cascade).
+        If it returns ``None`` (failure or unexpected response) the cascade
+        continues normally.  Pass ``None`` to skip LLM (default).
 
     Returns
     -------
@@ -127,7 +139,16 @@ def categorize(
             return name_to_id[t]
 
     # ------------------------------------------------------------------
-    # Level 2 — name + description keyword match
+    # Level 2 — LLM classifier (when available)
+    # ------------------------------------------------------------------
+    if llm_categorizer is not None:
+        result = llm_categorizer.classify(name, description, repo_topics, skill_path)
+        if result:
+            return result
+        # LLM returned None (failure or unexpected response) → fall through
+
+    # ------------------------------------------------------------------
+    # Level 3 — name + description keyword match
     # ------------------------------------------------------------------
     text_l2 = f"{name} {description}".strip()
     if text_l2:
@@ -136,7 +157,7 @@ def categorize(
             return match
 
     # ------------------------------------------------------------------
-    # Level 3 — GitHub repo topics
+    # Level 4 — GitHub repo topics
     # ------------------------------------------------------------------
     if repo_topics:
         match = _best_match(" ".join(repo_topics), categories)
@@ -144,7 +165,7 @@ def categorize(
             return match
 
     # ------------------------------------------------------------------
-    # Level 4 — directory path heuristics
+    # Level 5 — directory path heuristics
     # ------------------------------------------------------------------
     if skill_path:
         parts = skill_path.replace("\\", "/").split("/")[:-1]  # drop filename
@@ -154,7 +175,7 @@ def categorize(
                 return match
 
     # ------------------------------------------------------------------
-    # Level 5 — README excerpt (first 500 chars)
+    # Level 6 — README excerpt (first 500 chars)
     # ------------------------------------------------------------------
     if readme_excerpt:
         match = _best_match(readme_excerpt[:500], categories)
@@ -162,6 +183,6 @@ def categorize(
             return match
 
     # ------------------------------------------------------------------
-    # Level 6 — default
+    # Level 7 — default
     # ------------------------------------------------------------------
     return "other"

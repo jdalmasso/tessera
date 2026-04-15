@@ -58,6 +58,7 @@ jobs:
       - name: Run pipeline
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m surfaces.skills_leaderboard.pipeline
 
       - name: Build site
