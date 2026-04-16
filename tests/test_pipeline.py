@@ -525,16 +525,30 @@ class TestComputeCommitWindows:
         assert result["commit_count_90d"] == 0
 
     def test_unique_weeks_counted(self):
-        from surfaces.skills_leaderboard.pipeline import _utcnow
         import datetime
-        now = _utcnow()
+        # Use explicit Monday anchors so the ISO-week relationship is
+        # deterministic regardless of what day the test runs.
+        # (The original test used "now - 2 days" and "now - 3 days", which
+        # fall in different ISO weeks whenever today is Sunday or Monday.)
+        today = datetime.date.today()
+        # Monday of last week — always in the past, always within 90 days.
+        monday_last_week = today - datetime.timedelta(days=today.weekday() + 7)
+        tuesday_last_week = monday_last_week + datetime.timedelta(days=1)
+        monday_two_weeks_ago = monday_last_week - datetime.timedelta(days=7)
+
+        def _ts(d: datetime.date) -> str:
+            return datetime.datetime(d.year, d.month, d.day, 10, 0, 0).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+
         commits = [
-            self._make_commit((now - datetime.timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")),
-            self._make_commit((now - datetime.timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")),
-            self._make_commit((now - datetime.timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")),
+            self._make_commit(_ts(monday_last_week)),   # week N
+            self._make_commit(_ts(tuesday_last_week)),  # week N (same week)
+            self._make_commit(_ts(monday_two_weeks_ago)),  # week N-1
         ]
         result = self._fn(commits)
-        # days 2 and 3 are in the same ISO week; day 10 is in a different week
+        # Monday and Tuesday of last week share an ISO week; two weeks ago is a
+        # different ISO week → exactly 2 unique commit weeks.
         assert result["unique_commit_weeks_90d"] == 2
 
 
