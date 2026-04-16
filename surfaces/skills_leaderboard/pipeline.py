@@ -33,7 +33,7 @@ from data.store import (
     upsert_signal_source,
 )
 from signals.github.client import GitHubClient
-from signals.github.discovery import DiscoveredRepo, discover, make_entity_id
+from signals.github.discovery import discover, make_entity_id
 from signals.github.scoring import (
     compute_composite,
     score_adoption,
@@ -353,26 +353,40 @@ def _get_latest_payload(
     run_id: str,
 ) -> Optional[dict]:
     """
-    Return the most-recent payload dict for a given entity_ref + signal_type
-    within a run, or None if no matching row exists.
+    Return the most-recent payload dict for a given entity_ref + signal_type.
+
+    Looks in the current *run_id* first.  If no row is found (e.g. a repo
+    that was discovered in a previous run but not re-ingested today), falls
+    back to the most-recent signal from **any** run.  This "carry-forward"
+    behaviour lets previously-ingested repos stay on the leaderboard without
+    a full re-ingest every day.
     """
-    row = conn.execute(
-        """
-        SELECT payload FROM raw_signals
-        WHERE entity_ref = ? AND signal_type = ? AND run_id = ?
-        ORDER BY id DESC LIMIT 1
-        """,
-        (entity_ref, signal_type, run_id),
-    ).fetchone()
-    if row is None:
-        return None
-    try:
-        return json.loads(row["payload"])
-    except (json.JSONDecodeError, TypeError) as exc:
-        logger.warning(
-            "Malformed payload for %s/%s (run %s): %s", entity_ref, signal_type, run_id, exc
+    for extra_filter in (
+        "AND run_id = ?",   # first: current run only
+        "",                 # fallback: any run
+    ):
+        params: tuple = (
+            (entity_ref, signal_type, run_id)
+            if extra_filter
+            else (entity_ref, signal_type)
         )
-        return None
+        row = conn.execute(
+            f"""
+            SELECT payload FROM raw_signals
+            WHERE entity_ref = ? AND signal_type = ? {extra_filter}
+            ORDER BY id DESC LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        if row is not None:
+            try:
+                return json.loads(row["payload"])
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    "Malformed payload for %s/%s: %s", entity_ref, signal_type, exc
+                )
+                return None
+    return None
 
 
 def _parse_iso(ts: str) -> datetime.datetime:
@@ -454,11 +468,42 @@ def score_and_store_skills(
     else:
         corpus_max_stars, corpus_max_forks, corpus_max_watchers = _compute_corpus_max(conn, run_id)
 
-    skill_rows = conn.execute(
+    # Current run's skill_file signals (freshly ingested today).
+    current_skill_rows = conn.execute(
         "SELECT entity_ref, payload FROM raw_signals "
         "WHERE signal_type = 'skill_file' AND run_id = ?",
         (run_id,),
     ).fetchall()
+
+    # Carry-forward: entities with recent skill_file signals from *previous*
+    # runs that were NOT re-ingested today.  This keeps repos on the
+    # leaderboard without doubling ingest work.
+    carry_forward_days = config.get("discovery", {}).get("carry_forward_days", 7)
+    carry_forward_rows = conn.execute(
+        f"""
+        SELECT r.entity_ref, r.payload
+        FROM raw_signals r
+        WHERE r.signal_type = 'skill_file'
+          AND datetime(r.collected_at) > datetime('now', '-{int(carry_forward_days)} days')
+          AND r.entity_ref NOT IN (
+              SELECT entity_ref FROM raw_signals
+              WHERE signal_type = 'skill_file' AND run_id = ?
+          )
+          AND r.id = (
+              SELECT MAX(id) FROM raw_signals
+              WHERE signal_type = 'skill_file' AND entity_ref = r.entity_ref
+          )
+        """,
+        (run_id,),
+    ).fetchall()
+
+    if carry_forward_rows:
+        logger.info(
+            "Carry-forward: scoring %d entities from recent runs not re-ingested today.",
+            len(carry_forward_rows),
+        )
+
+    skill_rows = list(current_skill_rows) + list(carry_forward_rows)
 
     scored = 0
     seen_hashes: dict[str, str] = {}  # content_hash → first entity_ref that claimed it
@@ -682,24 +727,24 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
                 discovered = discover(client, discovery_cfg, max_repos=cap)
                 logger.info("Discovered %d repos.", len(discovered))
 
-                # --- DB retention: re-queue repos known to DB but absent from today's sample ---
+                # --- DB retention: log repos not seen today; scored via carry-forward ---
+                # Previously-known repos that are absent from today's discovery sample
+                # are NOT re-queued for a full re-ingest (that doubled runtime and caused
+                # 6h timeouts).  Instead, score_and_store_skills() carries forward their
+                # most recent signals automatically within the carry_forward_days window.
                 known_repos      = get_known_repo_names(conn)
                 discovered_names = {dr.full_name for dr in discovered}
-                missing_names    = known_repos - discovered_names
-                recovery_count   = len(missing_names)
-                if missing_names:
+                missing_count    = len(known_repos - discovered_names)
+                if missing_count:
                     logger.info(
-                        "Recovery pass: %d known repos not in today's sample; re-queuing.",
-                        recovery_count,
+                        "DB retention: %d known repos not in today's sample; "
+                        "will be scored via carry-forward (no re-ingest).",
+                        missing_count,
                     )
-                    for full_name in missing_names:
-                        discovered.append(DiscoveredRepo(full_name, [], "db_recovery"))
-                    logger.info("Total repos after recovery: %d", len(discovered))
 
                 # --- Batch-then-filter ingestion ---
                 valid_skills = 0
                 errors = 0
-                recovered_errors = 0
 
                 for i, dr in enumerate(discovered):
                     if i > 0 and i % log_interval == 0:
@@ -713,14 +758,7 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
                         # Fetch repo metadata first (batch step)
                         repo_data = client.get_repo(owner, repo_name)
                         if not repo_data:
-                            if dr.discovery_source == "db_recovery":
-                                logger.info(
-                                    "Recovery: %s no longer accessible (deleted/private); skipping.",
-                                    dr.full_name,
-                                )
-                                recovered_errors += 1
-                            else:
-                                errors += 1
+                            errors += 1
                             continue
 
                         # Filter invalid repos
@@ -777,11 +815,10 @@ def run(db_path: Optional[str] = None, max_repos: Optional[int] = None) -> str:
                     conn, run_id, completed_at,
                     stats={
                         "repos_discovered": len(discovered),
+                        "missing_from_sample": missing_count,
                         "valid_skills": valid_skills,
                         "scored_skills": scored,
                         "errors": errors,
-                        "recovery_count": recovery_count,
-                        "recovered_errors": recovered_errors,
                         "corpus_max_stars": corpus_max[0],
                         "corpus_max_forks": corpus_max[1],
                         "corpus_max_watchers": corpus_max[2],

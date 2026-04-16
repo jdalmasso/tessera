@@ -2,6 +2,11 @@
 
 max_repos: 6000  # safety ceiling; GitHub Search API yields ~900 results per shard
 
+# Repos not re-discovered today are scored using their most recent signals
+# (no API calls). A repo stays on the leaderboard for this many days after
+# it last appeared in a discovery sample.
+carry_forward_days: 7
+
 # Single high-precision query sharded by file size to bypass GitHub code
 # search's ~1000-result-per-query ceiling. Each shard appends a size:RANGE
 # filter so every size bucket gets its own ~1000-result window.
