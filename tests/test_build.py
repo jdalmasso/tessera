@@ -318,6 +318,51 @@ class TestBuildContext:
         ctx = build_context(_make_data(entities), _CONFIG)
         assert ctx["stats"]["total_skills"] == 5
 
+    def test_stats_total_repos_in_db_without_conn(self):
+        """total_repos_in_db defaults to 0 when no DB connection is provided."""
+        entities = [
+            {"id": f"skill:a/r{i}", "name": f"S{i}", "repo": f"a/r{i}", "scores": _scores()}
+            for i in range(3)
+        ]
+        ctx = build_context(_make_data(entities), _CONFIG)
+        assert ctx["stats"]["total_repos_in_db"] == 0
+
+    def test_stats_total_repos_in_db_with_conn(self):
+        """total_repos_in_db counts distinct repos from skill entities in the DB."""
+        import sqlite3
+        from data.store import init_db
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        init_db(conn)
+        now = "2026-01-01T00:00:00Z"
+        # Insert two skill entities for two distinct repos
+        conn.execute(
+            "INSERT INTO entities (id, entity_type, name, description, metadata, category, first_seen_at, updated_at) "
+            "VALUES (?, 'skill', 'S1', '', '{}', 'backend', ?, ?)",
+            ("skill:alice/repo-a", now, now),
+        )
+        conn.execute(
+            "INSERT INTO entities (id, entity_type, name, description, metadata, category, first_seen_at, updated_at) "
+            "VALUES (?, 'skill', 'S2', '', '{}', 'backend', ?, ?)",
+            ("skill:alice/repo-a:sub/SKILL.md", now, now),  # same repo, different path
+        )
+        conn.execute(
+            "INSERT INTO entities (id, entity_type, name, description, metadata, category, first_seen_at, updated_at) "
+            "VALUES (?, 'skill', 'S3', '', '{}', 'data_ai', ?, ?)",
+            ("skill:bob/repo-b", now, now),
+        )
+        conn.commit()
+
+        entities = [
+            {"id": "skill:alice/repo-a", "name": "S1", "repo": "alice/repo-a", "scores": _scores()},
+            {"id": "skill:bob/repo-b",   "name": "S3", "repo": "bob/repo-b",   "scores": _scores()},
+        ]
+        ctx = build_context(_make_data(entities), _CONFIG, conn=conn)
+        # alice/repo-a appears twice in entities but is one distinct repo; bob/repo-b is a second
+        assert ctx["stats"]["total_repos_in_db"] == 2
+        conn.close()
+
     def test_stats_score_distributions_have_three_methodologies(self):
         entities = [
             {"id": f"skill:a/r{i}", "name": f"S{i}", "repo": f"a/r{i}", "scores": _scores()}

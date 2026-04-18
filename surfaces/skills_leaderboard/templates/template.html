@@ -157,8 +157,12 @@
         <div class="stat-label">Skills indexed</div>
       </div>
       <div class="stat-item">
+        <div class="stat-value">{{ stats.total_repos_in_db | format_int }}</div>
+        <div class="stat-label">Repos in DB</div>
+      </div>
+      <div class="stat-item">
         <div class="stat-value">{{ stats.repos_discovered | format_int }}</div>
-        <div class="stat-label">Repos crawled</div>
+        <div class="stat-label">Crawled this run</div>
       </div>
       <div class="stat-item">
         <div class="stat-value">{{ stats.category_count }}</div>

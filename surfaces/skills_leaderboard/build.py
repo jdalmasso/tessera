@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 from jinja2 import Environment, FileSystemLoader
 
-from data.store import get_connection, get_latest_completed_run, get_previous_completed_run
+from data.store import get_connection, get_known_repo_names, get_latest_completed_run, get_previous_completed_run
 from surfaces.skills_leaderboard.pipeline import load_config
 from surfaces.skills_leaderboard.seed_report import collect_run_data, dist_stats
 
@@ -286,9 +286,12 @@ def build_context(data: dict, config: dict, conn: Optional[Any] = None) -> dict:
         s    = dist_stats(vals)
         score_dists.append({"label": label, **s})
 
+    total_repos_in_db = len(get_known_repo_names(conn)) if conn is not None else 0
+
     stats_ctx = {
         "total_skills":        total,
         "repos_discovered":    run_stats.get("repos_discovered", 0),
+        "total_repos_in_db":   total_repos_in_db,
         "category_count":      len([c for c in cat_counts if cat_counts[c] > 0]),
         "score_distributions": score_dists,
         "category_distribution": cat_dist,
