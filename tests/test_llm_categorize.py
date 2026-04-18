@@ -308,3 +308,128 @@ class TestCategorizationIntegration:
             llm_categorizer=None,
         )
         assert result == "other"
+
+
+# ---------------------------------------------------------------------------
+# Fail-fast: non-retryable errors disable the categoriser
+# ---------------------------------------------------------------------------
+
+class TestFailFastOnNonRetryableErrors:
+    """
+    When the API returns a non-retryable error (404 bad model, 401 bad key,
+    403 permission denied), classify() must:
+      - NOT retry (no time.sleep called)
+      - Set self._disabled = True
+      - Return None immediately on all subsequent calls (no API call at all)
+    """
+
+    def _make_categorizer_with_fake_exceptions(self, monkeypatch):
+        """
+        Return a LLMCategorizer whose self._anthropic is patched with simple
+        fake exception classes, allowing us to control which exception is raised
+        without constructing real anthropic SDK error objects.
+        """
+        cat = _make_categorizer(monkeypatch)
+
+        # Replace the stored anthropic module reference with a mock that has
+        # simple exception classes.  classify() builds its _non_retryable
+        # tuple from self._anthropic at call time, so this is safe.
+        class FakeNotFoundError(Exception):
+            pass
+
+        class FakeAuthenticationError(Exception):
+            pass
+
+        class FakePermissionDeniedError(Exception):
+            pass
+
+        mock_anthropic = MagicMock()
+        mock_anthropic.NotFoundError = FakeNotFoundError
+        mock_anthropic.AuthenticationError = FakeAuthenticationError
+        mock_anthropic.PermissionDeniedError = FakePermissionDeniedError
+        cat._anthropic = mock_anthropic
+
+        return cat, FakeNotFoundError, FakeAuthenticationError, FakePermissionDeniedError
+
+    def test_not_found_error_disables_categoriser(self, monkeypatch):
+        """HTTP 404 (retired / wrong model name) disables the categoriser."""
+        cat, FakeNotFoundError, _, _ = self._make_categorizer_with_fake_exceptions(monkeypatch)
+        cat._client.messages.create.side_effect = FakeNotFoundError("model not found")
+
+        result = cat.classify("name", "desc", [], "SKILL.md")
+
+        assert result is None
+        assert cat._disabled is True
+
+    def test_not_found_no_retry(self, monkeypatch):
+        """A 404 must NOT trigger any retry — only one API call made."""
+        cat, FakeNotFoundError, _, _ = self._make_categorizer_with_fake_exceptions(monkeypatch)
+        cat._client.messages.create.side_effect = FakeNotFoundError("model not found")
+
+        with patch("time.sleep") as mock_sleep:
+            cat.classify("name", "desc", [], "SKILL.md")
+
+        assert cat._client.messages.create.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_authentication_error_disables_categoriser(self, monkeypatch):
+        """HTTP 401 (bad API key) disables the categoriser."""
+        cat, _, FakeAuthenticationError, _ = self._make_categorizer_with_fake_exceptions(monkeypatch)
+        cat._client.messages.create.side_effect = FakeAuthenticationError("invalid key")
+
+        result = cat.classify("name", "desc", [], "SKILL.md")
+
+        assert result is None
+        assert cat._disabled is True
+
+    def test_permission_denied_error_disables_categoriser(self, monkeypatch):
+        """HTTP 403 (insufficient permissions) disables the categoriser."""
+        cat, _, _, FakePermissionDeniedError = self._make_categorizer_with_fake_exceptions(monkeypatch)
+        cat._client.messages.create.side_effect = FakePermissionDeniedError("forbidden")
+
+        result = cat.classify("name", "desc", [], "SKILL.md")
+
+        assert result is None
+        assert cat._disabled is True
+
+    def test_disabled_categoriser_skips_api_call(self, monkeypatch):
+        """After _disabled=True, subsequent calls return None without hitting the API."""
+        cat, FakeNotFoundError, _, _ = self._make_categorizer_with_fake_exceptions(monkeypatch)
+        cat._client.messages.create.side_effect = FakeNotFoundError("model not found")
+
+        # First call disables the categoriser
+        cat.classify("skill-a", "desc a", [], "SKILL.md")
+        assert cat._disabled is True
+        call_count_after_first = cat._client.messages.create.call_count
+
+        # Subsequent calls must NOT make any API call
+        result2 = cat.classify("skill-b", "desc b", [], "SKILL.md")
+        result3 = cat.classify("skill-c", "desc c", [], "SKILL.md")
+
+        assert result2 is None
+        assert result3 is None
+        assert cat._client.messages.create.call_count == call_count_after_first  # no new calls
+
+    def test_already_disabled_skips_immediately(self, monkeypatch):
+        """If _disabled is pre-set, classify() returns None without any call."""
+        cat = _make_categorizer(monkeypatch)
+        cat._disabled = True
+
+        result = cat.classify("name", "desc", [], "SKILL.md")
+
+        assert result is None
+        cat._client.messages.create.assert_not_called()
+
+    def test_transient_error_still_retries(self, monkeypatch):
+        """Generic (transient) exceptions still go through the retry loop."""
+        cat, _, _, _ = self._make_categorizer_with_fake_exceptions(monkeypatch)
+        cat._max_retries = 3
+        cat._client.messages.create.side_effect = Exception("transient 500")
+
+        with patch("time.sleep"):
+            cat.classify("name", "desc", [], "SKILL.md")
+
+        # All 3 retries should have fired
+        assert cat._client.messages.create.call_count == 3
+        # _disabled NOT set for transient errors
+        assert cat._disabled is False

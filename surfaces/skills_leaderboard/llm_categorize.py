@@ -32,12 +32,17 @@ class LLMCategorizer:
 
     ``classify()`` returns ``None`` on any API or parsing failure so the
     caller can transparently fall through to the keyword cascade.
+
+    Non-retryable errors (invalid model, bad API key, permission denied) set
+    ``self._disabled = True`` on the first occurrence, short-circuiting all
+    subsequent calls so a single fatal misconfiguration does not burn seconds
+    of retry backoff for every skill in the corpus.
     """
 
     def __init__(
         self,
         categories_config: dict,
-        model: str = "claude-3-5-haiku-20241022",
+        model: str = "claude-haiku-4-5",
         max_retries: int = 3,
     ) -> None:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -52,9 +57,11 @@ class LLMCategorizer:
                 "Install it with: pip install 'anthropic>=0.40,<1.0'"
             ) from exc
 
+        self._anthropic = _anthropic
         self._client = _anthropic.Anthropic(api_key=api_key)
         self._model = model
         self._max_retries = max_retries
+        self._disabled = False  # set True on non-retryable errors to skip all future calls
 
         # Build valid id set and system prompt, EXCLUDING "other" so the LLM
         # is never prompted to return it (forces a real classification).
@@ -93,12 +100,26 @@ class LLMCategorizer:
         Return the category id for a skill, or ``None`` on failure.
 
         ``None`` signals the caller to fall through to the keyword cascade.
+        Returns ``None`` immediately (no API call) when ``self._disabled`` is
+        True, which is set on the first non-retryable error.
         """
+        if self._disabled:
+            return None
+
         user_msg = (
             f"Name: {name[:80]}\n"
             f"Description: {description[:300]}\n"
             f"Topics: {', '.join(repo_topics[:10])}\n"
             f"Path: {skill_path[:60]}"
+        )
+
+        # Non-retryable SDK exception types: bad model ID (404), bad key (401),
+        # insufficient permissions (403).  Any of these on the first attempt
+        # disables the categoriser for the entire run.
+        _non_retryable = (
+            self._anthropic.NotFoundError,
+            self._anthropic.AuthenticationError,
+            self._anthropic.PermissionDeniedError,
         )
 
         for attempt in range(self._max_retries):
@@ -123,6 +144,17 @@ class LLMCategorizer:
                     raw, name,
                 )
                 return None  # bad-but-successful response — don't retry
+
+            except _non_retryable as exc:
+                # Fatal configuration error — disable for entire run to avoid
+                # burning retry backoff (6 s) on every remaining skill.
+                self._disabled = True
+                logger.error(
+                    "LLM categoriser disabled: non-retryable error for model %r: %s. "
+                    "Check ANTHROPIC_API_KEY and model name. Falling back to keyword cascade.",
+                    self._model, exc,
+                )
+                return None
 
             except Exception as exc:
                 if attempt < self._max_retries - 1:
